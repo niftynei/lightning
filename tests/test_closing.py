@@ -1169,7 +1169,7 @@ def test_permfail(node_factory, bitcoind):
         return (
             len(billboard) == 2 and
             billboard[0] == 'ONCHAIN:Tracking our own unilateral close' and
-            re.fullmatch('ONCHAIN:.* outputs unresolved: in 4 blocks will spend DELAYED_OUTPUT_TO_US \(.*:0\) using OUR_DELAYED_RETURN_TO_WALLET', billboard[1])
+            re.fullmatch(r'ONCHAIN:.* outputs unresolved: in 4 blocks will spend DELAYED_OUTPUT_TO_US \(.*:0\) using OUR_DELAYED_RETURN_TO_WALLET', billboard[1])
         )
     wait_for(check_billboard)
 
