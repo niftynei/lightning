@@ -455,6 +455,10 @@ static u8 *funder_channel(struct state *state,
 			      state->chainparams->max_funding_satoshi,
 			      state->funding_satoshis);
 
+	u64 max_inflight = state->localconf.max_htlc_value_in_flight_msat;
+	if (state->funding_satoshis * 1000 < state->localconf.max_htlc_value_in_flight_msat)
+		max_inflight = state->funding_satoshis * 1000;
+
 	/* BOLT #2:
 	 *
 	 * The sending node:
@@ -472,7 +476,7 @@ static u8 *funder_channel(struct state *state,
 				  &state->channel_id,
 				  state->funding_satoshis, state->push_msat,
 				  state->localconf.dust_limit_satoshis,
-				  state->localconf.max_htlc_value_in_flight_msat,
+				  max_inflight,
 				  state->localconf.channel_reserve_satoshis,
 				  state->localconf.htlc_minimum_msat,
 				  state->feerate_per_kw,
@@ -962,11 +966,15 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 	if (!check_config_bounds(state, &state->remoteconf, false))
 		return NULL;
 
+	/* set max inflight to be the smaller of our number or the max inflight */
+	u64 max_inflight = state->localconf.max_htlc_value_in_flight_msat;
+	if (state->funding_satoshis * 1000 < max_inflight)
+		max_inflight = state->funding_satoshis * 1000;
+
 	/* OK, we accept! */
 	msg = towire_accept_channel(NULL, &state->channel_id,
 				    state->localconf.dust_limit_satoshis,
-				    state->localconf
-				      .max_htlc_value_in_flight_msat,
+				    max_inflight,
 				    state->localconf.channel_reserve_satoshis,
 				    state->localconf.htlc_minimum_msat,
 				    state->minimum_depth,
