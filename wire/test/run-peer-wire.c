@@ -178,6 +178,45 @@ struct msg_open_channel {
 	struct pubkey first_per_commitment_point;
 	u8 channel_flags;
 };
+struct msg_open_channel2 {
+	struct bitcoin_blkid chain_hash;
+	struct channel_id temporary_channel_id;
+	struct amount_sat funding_satoshis;
+	struct amount_msat push_msat;
+	struct amount_sat dust_limit_satoshis;
+	struct amount_msat max_htlc_value_in_flight_msat;
+	struct amount_sat channel_reserve_satoshis;
+	struct amount_msat htlc_minimum_msat;
+	u32 feerate_per_kw;
+	u32 feerate_per_kw_funding;
+	u16 to_self_delay;
+	u16 max_accepted_htlcs;
+	struct pubkey funding_pubkey;
+	struct pubkey revocation_basepoint;
+	struct pubkey payment_basepoint;
+	struct pubkey delayed_payment_basepoint;
+	struct pubkey htlc_basepoint;
+	struct pubkey first_per_commitment_point;
+	u8 channel_flags;
+	struct opening_tlv opening_tlv;
+};
+struct msg_accept_channel2 {
+	struct channel_id temporary_channel_id;
+	struct amount_sat dust_limit_satoshis;
+	struct amount_msat max_htlc_value_in_flight_msat;
+	struct amount_sat channel_reserve_satoshis;
+	struct amount_msat htlc_minimum_msat;
+	u32 minimum_depth;
+	u16 to_self_delay;
+	u16 max_accepted_htlcs;
+	struct pubkey funding_pubkey;
+	struct pubkey revocation_basepoint;
+	struct pubkey payment_basepoint;
+	struct pubkey delayed_payment_basepoint;
+	struct pubkey htlc_basepoint;
+	struct pubkey first_per_commitment_point;
+	struct opening_tlv opening_tlv;
+};
 struct msg_update_fail_htlc {
 	struct channel_id channel_id;
 	u64 id;
@@ -300,6 +339,61 @@ static struct msg_open_channel *fromwire_struct_open_channel(const tal_t *ctx, c
 	return tal_free(s);
 }
 
+static void *towire_struct_open_channel2(const tal_t *ctx,
+						const struct msg_open_channel2 *s)
+{
+	return towire_open_channel2(ctx,
+				   &s->chain_hash,
+				   &s->temporary_channel_id,
+				   s->push_msat,
+				   s->funding_satoshis,
+				   s->dust_limit_satoshis,
+				   s->max_htlc_value_in_flight_msat,
+				   s->channel_reserve_satoshis,
+				   s->htlc_minimum_msat,
+				   s->feerate_per_kw,
+				   s->feerate_per_kw_funding,
+				   s->to_self_delay,
+				   s->max_accepted_htlcs,
+				   &s->funding_pubkey,
+				   &s->revocation_basepoint,
+				   &s->payment_basepoint,
+				   &s->delayed_payment_basepoint,
+				   &s->htlc_basepoint,
+				   &s->first_per_commitment_point,
+				   s->channel_flags,
+				   &s->opening_tlv);
+}
+
+static struct msg_open_channel2 *fromwire_struct_open_channel2(const tal_t *ctx, const void *p)
+{
+	struct msg_open_channel2 *s = tal(ctx, struct msg_open_channel2);
+
+	if (fromwire_open_channel2(ctx, p,
+				  &s->chain_hash,
+				  &s->temporary_channel_id,
+				  &s->push_msat,
+				  &s->funding_satoshis,
+				  &s->dust_limit_satoshis,
+				  &s->max_htlc_value_in_flight_msat,
+				  &s->channel_reserve_satoshis,
+				  &s->htlc_minimum_msat,
+				  &s->feerate_per_kw,
+				  &s->feerate_per_kw_funding,
+				  &s->to_self_delay,
+				  &s->max_accepted_htlcs,
+				  &s->funding_pubkey,
+				  &s->revocation_basepoint,
+				  &s->payment_basepoint,
+				  &s->delayed_payment_basepoint,
+				  &s->htlc_basepoint,
+				  &s->first_per_commitment_point,
+				  &s->channel_flags,
+				  &s->opening_tlv))
+		return s;
+	return tal_free(s);
+}
+
 static void *towire_struct_accept_channel(const tal_t *ctx,
 						const struct msg_accept_channel *s)
 {
@@ -343,6 +437,50 @@ static struct msg_accept_channel *fromwire_struct_accept_channel(const tal_t *ct
 	return tal_free(s);
 }
 
+static void *towire_struct_accept_channel2(const tal_t *ctx,
+						const struct msg_accept_channel2 *s)
+{
+	return towire_accept_channel2(ctx,
+				     &s->temporary_channel_id,
+				     s->dust_limit_satoshis,
+				     s->max_htlc_value_in_flight_msat,
+				     s->channel_reserve_satoshis,
+				     s->htlc_minimum_msat,
+				     s->minimum_depth,
+				     s->to_self_delay,
+				     s->max_accepted_htlcs,
+				     &s->funding_pubkey,
+				     &s->revocation_basepoint,
+				     &s->payment_basepoint,
+				     &s->htlc_basepoint,
+				     &s->delayed_payment_basepoint,
+				     &s->first_per_commitment_point,
+				     &s->opening_tlv);
+}
+
+static struct msg_accept_channel2 *fromwire_struct_accept_channel2(const tal_t *ctx, const void *p)
+{
+	struct msg_accept_channel2 *s = tal(ctx, struct msg_accept_channel2);
+
+	if (fromwire_accept_channel2(ctx, p,
+				    &s->temporary_channel_id,
+				    &s->dust_limit_satoshis,
+				    &s->max_htlc_value_in_flight_msat,
+				    &s->channel_reserve_satoshis,
+				    &s->htlc_minimum_msat,
+				    &s->minimum_depth,
+				    &s->to_self_delay,
+				    &s->max_accepted_htlcs,
+				    &s->funding_pubkey,
+				    &s->revocation_basepoint,
+				    &s->payment_basepoint,
+				    &s->htlc_basepoint,
+				    &s->delayed_payment_basepoint,
+				    &s->first_per_commitment_point,
+				    &s->opening_tlv))
+		return s;
+	return tal_free(s);
+}
 static void *towire_struct_node_announcement(const tal_t *ctx,
 				      const struct msg_node_announcement *s)
 {
@@ -739,6 +877,20 @@ static struct msg_init *fromwire_struct_init(const tal_t *ctx, const void *p)
 	return s;
 }
 
+static bool tlv_msg_option_upfront_shutdown_script_eq(const struct tlv_msg_option_upfront_shutdown_script *a,
+						      const struct tlv_msg_option_upfront_shutdown_script *b)
+{
+	return (!a && !b)
+		|| (a && b && eq_var(a, b, shutdown_scriptpubkey));
+}
+
+static bool opening_tlv_eq(const struct opening_tlv *a,
+			   const struct opening_tlv *b)
+{
+	return tlv_msg_option_upfront_shutdown_script_eq(a->option_upfront_shutdown_script,
+			b->option_upfront_shutdown_script);
+}
+
 static bool channel_announcement_eq(const struct msg_channel_announcement *a,
 				    const struct msg_channel_announcement *b)
 {
@@ -844,6 +996,15 @@ static bool open_channel_eq(const struct msg_open_channel *a,
 		&& eq_between(a, b, funding_pubkey, channel_flags);
 }
 
+static bool open_channel2_eq(const struct msg_open_channel2 *a,
+			    const struct msg_open_channel2 *b)
+{
+	return eq_with(a, b, max_accepted_htlcs)
+		&& eq_between(a, b, funding_pubkey, channel_flags)
+		&& opening_tlv_eq(&a->opening_tlv, &b->opening_tlv);
+}
+
+
 static bool channel_update_eq(const struct msg_channel_update *a,
 			      const struct msg_channel_update *b)
 {
@@ -863,6 +1024,14 @@ static bool accept_channel_eq(const struct msg_accept_channel *a,
 {
 	return eq_with(a, b, max_accepted_htlcs)
 		&& eq_between(a, b, funding_pubkey, first_per_commitment_point);
+}
+
+static bool accept_channel2_eq(const struct msg_accept_channel2 *a,
+			      const struct msg_accept_channel2 *b)
+{
+	return eq_with(a, b, max_accepted_htlcs)
+		&& eq_between(a, b, funding_pubkey, first_per_commitment_point)
+		&& opening_tlv_eq(&a->opening_tlv, &b->opening_tlv);
 }
 
 static bool update_add_htlc_eq(const struct msg_update_add_htlc *a,
@@ -919,6 +1088,11 @@ int main(void)
 	struct msg_accept_channel ac, *ac2;
 	struct msg_update_add_htlc uah, *uah2;
 	struct msg_node_announcement na, *na2;
+
+	/* v2 channel establishment */
+	struct msg_open_channel2 ocv2, *ocv22;
+	struct msg_accept_channel2 acv2, *acv22;
+
 	void *ctx = tal(NULL, char);
 	size_t i;
 	u8 *msg;
@@ -1083,6 +1257,44 @@ int main(void)
 	ac2 = fromwire_struct_accept_channel(ctx, msg);
 	assert(accept_channel_eq(&ac, ac2));
 	test_corruption(&ac, ac2, accept_channel);
+
+
+	memset(&ocv2, 2, sizeof(ocv2));
+	set_pubkey(&ocv2.funding_pubkey);
+	set_pubkey(&ocv2.revocation_basepoint);
+	set_pubkey(&ocv2.payment_basepoint);
+	set_pubkey(&ocv2.delayed_payment_basepoint);
+	set_pubkey(&ocv2.htlc_basepoint);
+	set_pubkey(&ocv2.first_per_commitment_point);
+
+	ocv2.opening_tlv.option_upfront_shutdown_script = talz(ctx, struct tlv_msg_option_upfront_shutdown_script);
+	memset(ocv2.opening_tlv.option_upfront_shutdown_script, 2, sizeof(*ocv2.opening_tlv.option_upfront_shutdown_script));
+	ocv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
+	memset(ocv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
+
+	msg = towire_struct_open_channel2(ctx, &ocv2);
+	ocv22 = fromwire_struct_open_channel2(ctx, msg);
+	assert(open_channel2_eq(&ocv2, ocv22));
+	test_corruption(&ocv2, ocv22, open_channel2);
+
+
+	memset(&acv2, 2, sizeof(acv2));
+	set_pubkey(&acv2.funding_pubkey);
+	set_pubkey(&acv2.revocation_basepoint);
+	set_pubkey(&acv2.payment_basepoint);
+	set_pubkey(&acv2.delayed_payment_basepoint);
+	set_pubkey(&acv2.htlc_basepoint);
+	set_pubkey(&acv2.first_per_commitment_point);
+
+	acv2.opening_tlv.option_upfront_shutdown_script = talz(ctx, struct tlv_msg_option_upfront_shutdown_script);
+	memset(acv2.opening_tlv.option_upfront_shutdown_script, 2, sizeof(*acv2.opening_tlv.option_upfront_shutdown_script));
+	acv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
+	memset(acv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
+
+	msg = towire_struct_accept_channel2(ctx, &acv2);
+	acv22 = fromwire_struct_accept_channel2(ctx, msg);
+	assert(accept_channel2_eq(&acv2, acv22));
+	test_corruption(&acv2, acv22, accept_channel2);
 
 	memset(&uah, 2, sizeof(uah));
 
