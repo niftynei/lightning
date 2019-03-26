@@ -1070,6 +1070,17 @@ static bool node_announcement_eq(const struct msg_node_announcement *a,
 		assert(!b);					\
 	}
 
+/* test failure due to duplicate TLV message */
+static void test_open_channel2_tlv_message_duplicate(const tal_t *ctx, u8 *msg)
+{
+	size_t len = tal_count(msg);
+	u8 *duplicate = tal_arr(ctx, u8, 10);
+	memcpy(duplicate, msg + (len - 10), 10);
+	towire(&msg, duplicate, 10);
+	msg[len - 11] = 20; // duplicate the size variable
+	assert(fromwire_struct_open_channel2(ctx, msg) == NULL);
+}
+
 int main(void)
 {
 	setup_locale();
@@ -1282,7 +1293,7 @@ int main(void)
 	ocv22 = fromwire_struct_open_channel2(ctx, msg);
 	assert(open_channel2_eq(&ocv2, ocv22));
 	test_corruption(&ocv2, ocv22, open_channel2);
-
+	test_open_channel2_tlv_message_duplicate(ctx, msg);
 
 	memset(&acv2, 2, sizeof(acv2));
 	set_pubkey(&acv2.funding_pubkey);
