@@ -59,6 +59,12 @@ static void set_node_id(struct node_id *id)
 	(tal_count((p1)->field) == tal_count((p2)->field) \
 	 && (tal_count((p1)->field) == 0 || memcmp((p1)->field, (p2)->field, tal_bytelen((p1)->field)) == 0))
 
+#define eq_struct_set(p1, p2, field, type)				\
+	for (size_t i = 0; i < tal_count((p1)->field); i++) {		\
+		 assert(type##_eq(&(p1)->field[i],			\
+				       &(p2)->field[i]));		\
+	}								\
+
 /* Convenience structs for everyone! */
 struct msg_error {
 	struct channel_id channel_id;
@@ -1077,18 +1083,9 @@ static bool output_info_eq(const struct output_info *a,
 static bool funding_compose_eq(const struct msg_funding_compose *a,
 			       const struct msg_funding_compose *b)
 {
-	bool is_ok = eq_upto(a, b, input_infos);
-
-	size_t input_len = tal_count(a->input_infos);
-	for (size_t i = 0; i < input_len; i++) {
-		is_ok &= input_info_eq(&a->input_infos[i],
-				       &b->input_infos[i]);
-	}
-	for (size_t i = 0; i < tal_count(a->output_infos); i++) {
-		is_ok &= output_info_eq(&a->output_infos[i],
-				       &b->output_infos[i]);
-	}
-	return is_ok;
+	eq_struct_set(a, b, input_infos, input_info);
+	eq_struct_set(a, b, output_infos, output_info);
+	return eq_upto(a, b, input_infos);
 }
 
 static bool update_add_htlc_eq(const struct msg_update_add_htlc *a,
