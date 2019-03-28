@@ -217,6 +217,11 @@ struct msg_accept_channel2 {
 	struct pubkey first_per_commitment_point;
 	struct opening_tlv opening_tlv;
 };
+struct msg_funding_compose {
+	struct channel_id temporary_channel_id;
+	struct input_info *input_infos;
+	struct output_info *output_infos;
+};
 struct msg_update_fail_htlc {
 	struct channel_id channel_id;
 	u64 id;
@@ -478,6 +483,25 @@ static struct msg_accept_channel2 *fromwire_struct_accept_channel2(const tal_t *
 				    &s->delayed_payment_basepoint,
 				    &s->first_per_commitment_point,
 				    &s->opening_tlv))
+		return s;
+	return tal_free(s);
+}
+static void *towire_struct_funding_compose(const tal_t *ctx,
+				const struct msg_funding_compose *s)
+{
+	return towire_funding_compose(ctx,
+		&s->temporary_channel_id,
+		s->input_infos,
+		s->output_infos);
+}
+static struct msg_funding_compose *fromwire_struct_funding_compose(const tal_t *ctx, const void *p)
+{
+	struct msg_funding_compose *s = tal(ctx, struct msg_funding_compose);
+
+	if (fromwire_funding_compose(ctx, p,
+				&s->temporary_channel_id,
+				&s->input_infos,
+				&s->output_infos))
 		return s;
 	return tal_free(s);
 }
@@ -1034,6 +1058,39 @@ static bool accept_channel2_eq(const struct msg_accept_channel2 *a,
 		&& opening_tlv_eq(&a->opening_tlv, &b->opening_tlv);
 }
 
+static bool input_info_eq(const struct input_info *a,
+			   const struct input_info *b)
+{
+	return eq_with(a, b, prevtx_vout)
+		&& eq_var(a, b, prevtx_scriptpubkey)
+		&& eq_field(a, b, max_witness_len)
+		&& eq_var(a, b, script);
+}
+
+static bool output_info_eq(const struct output_info *a,
+			   const struct output_info *b)
+{
+	return eq_with(a, b, satoshis)
+		&& eq_var(a, b, script);
+}
+
+static bool funding_compose_eq(const struct msg_funding_compose *a,
+			       const struct msg_funding_compose *b)
+{
+	bool is_ok = eq_upto(a, b, input_infos);
+
+	size_t input_len = tal_count(a->input_infos);
+	for (size_t i = 0; i < input_len; i++) {
+		is_ok &= input_info_eq(&a->input_infos[i],
+				       &b->input_infos[i]);
+	}
+	for (size_t i = 0; i < tal_count(a->output_infos); i++) {
+		is_ok &= output_info_eq(&a->output_infos[i],
+				       &b->output_infos[i]);
+	}
+	return is_ok;
+}
+
 static bool update_add_htlc_eq(const struct msg_update_add_htlc *a,
 			       const struct msg_update_add_htlc *b)
 {
@@ -1103,6 +1160,7 @@ int main(void)
 	/* v2 channel establishment */
 	struct msg_open_channel2 ocv2, *ocv22;
 	struct msg_accept_channel2 acv2, *acv22;
+	struct msg_funding_compose fcom, *fcom2;
 
 	void *ctx = tal(NULL, char);
 	size_t i;
@@ -1306,6 +1364,26 @@ int main(void)
 	acv22 = fromwire_struct_accept_channel2(ctx, msg);
 	assert(accept_channel2_eq(&acv2, acv22));
 	test_corruption(&acv2, acv22, accept_channel2);
+
+	memset(&fcom, 2, sizeof(fcom));
+	fcom.input_infos = tal_arr(ctx, struct input_info, 2);
+	memset(fcom.input_infos, 2, sizeof(struct input_info) * 2);
+	for (i = 0; i < 2; i++) {
+		fcom.input_infos[i].prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
+		memset(fcom.input_infos[i].prevtx_scriptpubkey, 2, 2);
+		fcom.input_infos[i].script = tal_arr(ctx, u8, 2);
+		memset(fcom.input_infos[i].script, 2, 2);
+	}
+	fcom.output_infos = tal_arr(ctx, struct output_info, 2);
+	memset(fcom.output_infos, 2, sizeof(struct output_info)*2);
+	for (i = 0; i < 2; i++) {
+		fcom.output_infos[i].script = tal_arr(ctx, u8, 2);
+		memset(fcom.output_infos[i].script, 2, 2);
+	}
+
+	msg = towire_struct_funding_compose(ctx, &fcom);
+	fcom2 = fromwire_struct_funding_compose(ctx, msg);
+	assert(funding_compose_eq(&fcom, fcom2));
 
 	memset(&uah, 2, sizeof(uah));
 
