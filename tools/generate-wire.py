@@ -268,7 +268,7 @@ fromwire_tlv_impl_templ = """static bool fromwire_{tlv_name}_{name}({ctx}{args})
 }}
 """
 
-fromwire_subtype_impl_templ = """static bool fromwire_{name}({ctx}{args})
+fromwire_subtype_impl_templ = """{static}bool fromwire_{name}({ctx}{args})
 {{
 
 {fields}
@@ -276,6 +276,8 @@ fromwire_subtype_impl_templ = """static bool fromwire_{name}({ctx}{args})
 \treturn cursor != NULL;
 }}
 """
+
+fromwire_subtype_header_templ = """bool fromwire_{name}({ctx}{args});"""
 
 fromwire_header_templ = """bool fromwire_{name}({ctx}const void *p{args});
 """
@@ -884,6 +886,8 @@ class Subtype(Message):
 
     def print_towire(self):
         """ prints towire function definition for a subtype"""
+        template = subtype_towire_header_stub if options.header else subtype_towire_stub
+
         field_decls = []
         for f in self.fields:
             if f.optional:
@@ -912,7 +916,8 @@ class Subtype(Message):
             else:
                 ref = '&' if f.fieldtype.needs_ptr() else ''
                 subcalls.append('towire_{}(p, {}{}->{});'.format(basetype, ref, self.name, f.name))
-        return subtype_towire_stub.format(
+        return template.format(
+            static='' if options.subtypes else 'static ',
             name=self.name,
             field_decls='\n'.join(field_decls),
             subcalls=str(subcalls))
@@ -925,6 +930,7 @@ class Subtype(Message):
         ctx_arg = 'const tal_t *ctx, ' if self.has_variable_fields else ''
         args = 'const u8 **cursor, size_t *plen, struct {name} *{name}'.format(name=self.name)
         fields = ['\t{} {};\n'.format(f.fieldtype.name, f.name) for f in self.fields if f.is_len_var]
+        template = fromwire_subtype_header_templ if options.header else fromwire_subtype_impl_templ
         subcalls = CCode()
         for f in self.fields:
             basetype = f.fieldtype.base()
@@ -967,7 +973,8 @@ class Subtype(Message):
                         basetype, ref, self.name, f.name)
                 subcalls.append(s)
 
-        return fromwire_subtype_impl_templ.format(
+        return template.format(
+            static='' if options.subtypes else 'static ',
             name=self.name,
             ctx=ctx_arg,
             args=''.join(args),
@@ -982,11 +989,13 @@ tlv_message_towire_stub = """static void towire_{tlv_name}_{name}(u8 **p, struct
 }}
 """
 
-subtype_towire_stub = """static void towire_{name}(u8 **p, const struct {name} *{name}) {{
+subtype_towire_stub = """{static}void towire_{name}(u8 **p, const struct {name} *{name}) {{
 {field_decls}
 {subcalls}
 }}
 """
+
+subtype_towire_header_stub = """void towire_{name}(u8 **p, const struct {name} *{name});"""
 
 tlv_struct_template = """
 struct {tlv_name} {{
@@ -1190,6 +1199,7 @@ def find_message_with_option(messages, optional_messages, name, option):
 
 parser = argparse.ArgumentParser(description='Generate C from CSV')
 parser.add_argument('--header', action='store_true', help="Create wire header")
+parser.add_argument('--subtypes', action='store_true', help="Include subtype parsing function delcarations in header definition. Only active if --header also declared.")
 parser.add_argument('--bolt', action='store_true', help="Generate wire-format for BOLT")
 parser.add_argument('--printwire', action='store_true', help="Create print routines")
 parser.add_argument('headerfilename', help='The filename of the header')
@@ -1296,7 +1306,8 @@ def format_enums(template, enums, enumname):
 
 def build_hdr_enums(toplevel_enumname, toplevel_messages, tlv_fields):
     enum_set = ""
-    enum_set += enum_header(construct_hdr_enums(toplevel_messages), toplevel_enumname)
+    if len(toplevel_messages):
+        enum_set += enum_header(construct_hdr_enums(toplevel_messages), toplevel_enumname)
     for field_name, tlv_messages in tlv_fields.items():
         enum_set += "\n"
         enum_set += enum_header(construct_hdr_enums(tlv_messages), field_name + '_type')
@@ -1305,7 +1316,8 @@ def build_hdr_enums(toplevel_enumname, toplevel_messages, tlv_fields):
 
 def build_impl_enums(toplevel_enumname, toplevel_messages, tlv_fields):
     enum_set = ""
-    enum_set += enum_impl(construct_impl_enums(toplevel_messages), toplevel_enumname)
+    if len(toplevel_messages):
+        enum_set += enum_impl(construct_impl_enums(toplevel_messages), toplevel_enumname)
     for field_name, tlv_messages in tlv_fields.items():
         enum_set += "\n"
         enum_set += enum_impl(construct_impl_enums(tlv_messages), field_name + '_type')
@@ -1467,6 +1479,8 @@ else:
     if not options.header:
         towire_decls += build_tlv_towires(tlv_fields)
         fromwire_decls += build_tlv_fromwires(tlv_fields)
+
+    if not options.header or options.header and options.subtypes:
         for subtype in subtypes:
             towire_decls.append(subtype.print_towire())
             fromwire_decls.append(subtype.print_fromwire())
