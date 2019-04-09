@@ -8,7 +8,6 @@
 #include <ccan/tal/str/str.h>
 #include <channeld/commit_tx.h>
 #include <channeld/full_channel.h>
-#include <common/channel_config.h>
 #include <common/htlc.h>
 #include <common/htlc_tx.h>
 #include <common/htlc_wire.h>

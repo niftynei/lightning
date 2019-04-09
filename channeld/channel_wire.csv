@@ -1,5 +1,5 @@
 #include <common/cryptomsg.h>
-#include <common/channel_config.h>
+#include <common/gen_channel_config.h>
 #include <common/derive_basepoints.h>
 
 # Begin!  (passes gossipd-client fd)

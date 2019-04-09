@@ -1,5 +1,5 @@
 #include <common/cryptomsg.h>
-#include <common/channel_config.h>
+#include <common/gen_channel_config.h>
 #include <common/derive_basepoints.h>
 
 opening_init,6000
@@ -42,6 +42,7 @@ opening_funder,,bip32,struct ext_key
 
 # Openingd->master: we've successfully offered channel.
 # This gives their sig, means we can broadcast tx: we're done.
+#include <common/gen_channel_config.h>
 opening_funder_reply,6101
 opening_funder_reply,,their_config,struct channel_config
 opening_funder_reply,,first_commit,struct bitcoin_tx

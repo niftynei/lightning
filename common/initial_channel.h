@@ -8,8 +8,8 @@
 #include <ccan/short_types/short_types.h>
 #include <ccan/tal/tal.h>
 #include <common/amount.h>
-#include <common/channel_config.h>
 #include <common/derive_basepoints.h>
+#include <common/gen_channel_config.h>
 #include <common/htlc.h>
 #include <stdbool.h>
 
