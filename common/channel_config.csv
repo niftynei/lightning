@@ -1,0 +1,15 @@
+#include "config.h"
+#include <ccan/short_types/short_types.h>
+#include <ccan/tal/tal.h>
+#include <common/amount.h>
+#include <wire/wire.h>
+
+channel_config
+#Database ID
+channel_config,,id,u64
+channel_config,,dust_limit,struct amount_sat
+channel_config,,max_htlc_value_in_flight,struct amount_msat
+channel_config,,channel_reserve,struct amount_sat
+channel_config,,htlc_minimum,struct amount_msat
+channel_config,,to_self_delay,u16
+channel_config,,max_accepted_htlcs,u16

@@ -2,8 +2,8 @@
 #include <bitcoin/privkey.h>
 #include <bitcoin/script.h>
 #include <ccan/tal/str/str.h>
-#include <common/channel_config.h>
 #include <common/funding_tx.h>
+#include <common/gen_channel_config.h>
 #include <common/json_command.h>
 #include <common/jsonrpc_errors.h>
 #include <common/key_derive.h>

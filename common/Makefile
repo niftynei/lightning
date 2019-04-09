@@ -5,7 +5,6 @@ COMMON_SRC_NOGEN :=				\
 	common/bech32_util.c			\
 	common/bip32.c				\
 	common/bolt11.c				\
-	common/channel_config.c			\
 	common/close_tx.c			\
 	common/configdir.c			\
 	common/crypto_state.c			\
@@ -55,10 +54,10 @@ COMMON_SRC_NOGEN :=				\
 	common/wire_error.c			\
 	common/withdraw_tx.c
 
-COMMON_SRC_GEN := common/gen_status_wire.c common/gen_peer_status_wire.c
+COMMON_SRC_GEN := common/gen_status_wire.c common/gen_peer_status_wire.c common/gen_channel_config.c
 
 COMMON_HEADERS_NOGEN := $(COMMON_SRC_NOGEN:.c=.h) common/overflows.h common/htlc.h common/status_levels.h common/json_command.h common/jsonrpc_errors.h
-COMMON_HEADERS_GEN := common/gen_htlc_state_names.h common/gen_status_wire.h common/gen_peer_status_wire.h
+COMMON_HEADERS_GEN := common/gen_htlc_state_names.h common/gen_status_wire.h common/gen_peer_status_wire.h common/gen_channel_config.h
 
 COMMON_HEADERS := $(COMMON_HEADERS_GEN) $(COMMON_HEADERS_NOGEN)
 COMMON_SRC := $(COMMON_SRC_NOGEN) $(COMMON_SRC_GEN)
@@ -85,6 +84,12 @@ common/gen_peer_status_wire.h: $(WIRE_GEN) common/peer_status_wire.csv
 
 common/gen_peer_status_wire.c: $(WIRE_GEN) common/peer_status_wire.csv
 	$(WIRE_GEN) ${@:.c=.h} peer_status < common/peer_status_wire.csv > $@
+
+common/gen_channel_config.h: $(WIRE_GEN) common/channel_config.csv
+	$(WIRE_GEN) --header --subtypes $@ channel_config < common/channel_config.csv > $@
+
+common/gen_channel_config.c: $(WIRE_GEN) common/channel_config.csv
+	$(WIRE_GEN) --subtypes ${@:.c=.h} channel_config < common/channel_config.csv > $@
 
 check-makefile: check-common-makefile
 

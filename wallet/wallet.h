@@ -9,7 +9,7 @@
 #include <ccan/crypto/shachain/shachain.h>
 #include <ccan/list/list.h>
 #include <ccan/tal/tal.h>
-#include <common/channel_config.h>
+#include <common/gen_channel_config.h>
 #include <common/utxo.h>
 #include <lightningd/chaintopology.h>
 #include <lightningd/htlc_end.h>

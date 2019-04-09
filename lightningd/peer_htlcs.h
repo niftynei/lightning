@@ -3,8 +3,8 @@
 #define LIGHTNING_LIGHTNINGD_PEER_HTLCS_H
 #include "config.h"
 #include <ccan/short_types/short_types.h>
-#include <common/channel_config.h>
 #include <common/derive_basepoints.h>
+#include <common/gen_channel_config.h>
 #include <common/htlc_wire.h>
 
 struct channel;

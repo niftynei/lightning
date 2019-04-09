@@ -4,7 +4,7 @@
 #include <ccan/compiler/compiler.h>
 #include <ccan/crypto/shachain/shachain.h>
 #include <ccan/list/list.h>
-#include <common/channel_config.h>
+#include <common/gen_channel_config.h>
 #include <common/htlc.h>
 #include <common/json.h>
 #include <common/wireaddr.h>

@@ -36,7 +36,6 @@ CHANNELD_COMMON_OBJS :=				\
 	common/amount.o				\
 	common/base32.o				\
 	common/bip32.o				\
-	common/channel_config.o			\
 	common/crypto_state.o			\
 	common/crypto_sync.o			\
 	common/cryptomsg.o			\
@@ -45,6 +44,7 @@ CHANNELD_COMMON_OBJS :=				\
 	common/derive_basepoints.o		\
 	common/dev_disconnect.o			\
 	common/features.o			\
+	common/gen_channel_config.o		\
 	common/gen_status_wire.o		\
 	common/gen_peer_status_wire.o		\
 	common/htlc_state.o			\
