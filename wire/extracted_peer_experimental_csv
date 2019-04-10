@@ -1,0 +1,96 @@
+--- wire/extracted_peer_wire_csv	2019-04-23 17:48:08.744773121 -0700
++++ -	2019-04-23 17:56:23.544006350 -0700
+@@ -63,6 +63,93 @@
+ funding_locked,36
+ funding_locked,0,channel_id,32
+ funding_locked,32,next_per_commitment_point,33
++open_channel2,56
++open_channel2,0,chain_hash,32
++open_channel2,32,temporary_channel_id,32
++open_channel2,64,push_msat,8
++open_channel2,72,funding_satoshis,8
++open_channel2,80,dust_limit_satoshis,8
++open_channel2,88,max_htlc_value_in_flight_msat,8
++open_channel2,96,channel_reserve_satoshis,8
++open_channel2,104,htlc_minimum_msat,8
++open_channel2,112,feerate_per_kw,4
++open_channel2,116,feerate_per_kw_funding,4
++open_channel2,120,to_self_delay,2
++open_channel2,122,max_accepted_htlcs,2
++open_channel2,124,funding_pubkey,33
++open_channel2,157,revocation_basepoint,33
++open_channel2,190,payment_basepoint,33
++open_channel2,223,delayed_payment_basepoint,33
++open_channel2,256,htlc_basepoint,33
++open_channel2,289,first_per_commitment_point,33
++open_channel2,322,channel_flags,1
++open_channel2,323,opening_tlv_len,var_int
++open_channel2,323+var_int,opening_tlv,opening_tlv_len
++option_upfront_shutdown_script,1,opening_tlv
++option_upfront_shutdown_script,0,shutdown_len,2
++option_upfront_shutdown_script,2,shutdown_scriptpubkey,shutdown_len
++accept_channel2,57
++accept_channel2,0,temporary_channel_id,32
++accept_channel2,32,dust_limit_satoshis,8
++accept_channel2,40,max_htlc_value_in_flight_msat,8
++accept_channel2,48,channel_reserve_satoshis,8
++accept_channel2,56,htlc_minimum_msat,8
++accept_channel2,64,minimum_depth,4
++accept_channel2,68,to_self_delay,2
++accept_channel2,70,max_accepted_htlcs,2
++accept_channel2,72,funding_pubkey,33
++accept_channel2,105,revocation_basepoint,33
++accept_channel2,138,payment_basepoint,33
++accept_channel2,171,delayed_payment_basepoint,33
++accept_channel2,204,htlc_basepoint,33
++accept_channel2,237,first_per_commitment_point,33
++accept_channel2,270,opening_tlv_len,var_int
++accept_channel2,270+var_int,opening_tlv,opening_tlv_len
++funding_compose,58
++funding_compose,0,temporary_channel_id,32
++funding_compose,32,num_inputs,2
++funding_compose,34,input_info,num_inputs*input_info
++funding_compose,34+num_inputs*input_info,num_outputs,2
++funding_compose,36+num_inputs*input_info,output_info,num_outputs*output_info
++input_info
++input_info,0,satoshis,8
++input_info,8,prevtx_txid,32
++input_info,40,prevtx_vout,4
++input_info,44,prevtx_scriptpubkey_len,2
++input_info,46,prevtx_scriptpubkey,prevtx_scriptpubkey_len
++input_info,46+prevtx_scriptpubkey_len,max_witness_len,2
++input_info,48+prevtx_scriptpubkey_len,scriptlen,2
++input_info,50+prevtx_scriptpubkey_len,script,scriptlen
++output_info
++output_info,0,satoshis,8
++output_info,8,scriptlen,2
++output_info,10,script,scriptlen
++funding_signed2,60
++funding_signed2,0,channel_id,32
++funding_signed2,32,num_witnesses,2
++funding_signed2,34,witness_stack,num_witnesses*witness_stack
++witness_stack
++witness_stack,0,num_input_witness,2
++witness_stack,2,witness_element,num_input_witness*witness_element
++witness_element
++witness_element,0,len,2
++witness_element,2,witness,len
++funding_locked2,61
++funding_locked2,0,channel_id,32
++funding_locked2,32,funding_tx_id,32
++funding_locked2,64,next_per_commitment_point,33
++init_rbf,62
++init_rbf,0,channel_id,32
++init_rbf,32,funding_satoshis,8
++init_rbf,40,channel_reserve_satoshis,8
++init_rbf,48,feerate_per_kw,4
++init_rbf,52,feerate_per_kw_funding,4
++init_rbf,56,num_additional_inputs,2
++init_rbf,58,input_info,num_additional_inputs*input_info
++init_rbf,58+num_additional_inputs*input_info,num_outputs,2
++init_rbf,60+num_additional_inputs*input_info,output_info,num_outputs*output_info
++ack_rbf,63
++ack_rbf,0,channel_id,32
+ shutdown,38
+ shutdown,0,channel_id,32
+ shutdown,32,len,2
