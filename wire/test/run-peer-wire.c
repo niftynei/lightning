@@ -1161,7 +1161,7 @@ static bool node_announcement_eq(const struct msg_node_announcement *a,
 #define test_corruption(a, b, type)				\
 	for (i = 0; i < tal_count(msg) * 8; i++) {		\
 		msg[i / 8] ^= (1 << (i%8));			\
-		b = fromwire_struct_##type(ctx, msg);	\
+		b = fromwire_struct_##type(ctx, msg);		\
 		assert(!b || !type##_eq(a, b));			\
 		msg[i / 8] ^= (1 << (i%8));			\
 	}							\
