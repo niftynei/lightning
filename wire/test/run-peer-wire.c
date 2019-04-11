@@ -235,6 +235,10 @@ struct msg_funding_compose {
 	struct input_info *input_infos;
 	struct output_info *output_infos;
 };
+struct msg_funding_signed2 {
+	struct channel_id channel_id;
+	struct witness_stack *witness_stacks;
+};
 struct msg_update_fail_htlc {
 	struct channel_id channel_id;
 	u64 id;
@@ -516,6 +520,24 @@ static struct msg_funding_compose *fromwire_struct_funding_compose(const tal_t *
 				&s->input_infos,
 				&s->output_infos))
 		return s;
+	return tal_free(s);
+}
+static void *towire_struct_funding_signed2(const tal_t *ctx,
+		const struct msg_funding_signed2 *s)
+{
+	return towire_funding_signed2(ctx,
+			&s->channel_id,
+			s->witness_stacks);
+}
+static struct msg_funding_signed2 *fromwire_struct_funding_signed2(const tal_t *ctx, const void *p)
+{
+	struct msg_funding_signed2 *s = tal(ctx, struct msg_funding_signed2);
+
+	if (fromwire_funding_signed2(ctx, p,
+				&s->channel_id,
+				&s->witness_stacks)) {
+		return s;
+	}
 	return tal_free(s);
 }
 static void *towire_struct_node_announcement(const tal_t *ctx,
@@ -1087,6 +1109,21 @@ static bool output_info_eq(const struct output_info *a,
 		&& eq_var(a, b, script);
 }
 
+static bool witness_element_eq(const struct witness_element *a,
+			       const struct witness_element *b)
+{
+	return ((!a && !b) || (a && b)) 
+		&& eq_var(a, b, witness);
+}
+
+static bool witness_stack_eq(const struct witness_stack *a,
+			     const struct witness_stack *b)
+{
+	bool ok = true;
+	eq_struct_set(a, b, witness_element, witness_element);
+	return ok;
+}
+
 static bool funding_compose_eq(const struct msg_funding_compose *a,
 			       const struct msg_funding_compose *b)
 {
@@ -1094,6 +1131,14 @@ static bool funding_compose_eq(const struct msg_funding_compose *a,
 	eq_struct_set(a, b, input_infos, input_info);
 	eq_struct_set(a, b, output_infos, output_info);
 	return ok && eq_upto(a, b, input_infos);
+}
+
+static bool funding_signed2_eq(const struct msg_funding_signed2 *a,
+			      const struct msg_funding_signed2 *b)
+{
+	bool ok = true;
+	eq_struct_set(a, b, witness_stacks, witness_stack);
+	return ok && eq_field(a, b, channel_id);
 }
 
 static bool update_add_htlc_eq(const struct msg_update_add_htlc *a,
@@ -1166,6 +1211,7 @@ int main(void)
 	struct msg_open_channel2 ocv2, *ocv22;
 	struct msg_accept_channel2 acv2, *acv22;
 	struct msg_funding_compose fcom, *fcom2;
+	struct msg_funding_signed2 fsv2, *fsv22;
 
 	void *ctx = tal(NULL, char);
 	size_t i;
@@ -1390,6 +1436,23 @@ int main(void)
 	fcom2 = fromwire_struct_funding_compose(ctx, msg);
 	assert(funding_compose_eq(&fcom, fcom2));
 	test_corruption(&fcom, fcom2, funding_compose);
+
+	memset(&fsv2, 2, sizeof(fsv2));
+	fsv2.witness_stacks = tal_arr(ctx, struct witness_stack, 2);
+	memset(fsv2.witness_stacks, 2, sizeof(struct witness_stack) * 2);
+	for (i = 0; i < 2; i++) {
+		fsv2.witness_stacks[i].witness_element = tal_arr(ctx, struct witness_element, 2);
+		memset(fsv2.witness_stacks[i].witness_element, 2, sizeof(struct witness_element) * 2);
+		for (size_t j = 0; j < 2; j++) {
+			fsv2.witness_stacks[i].witness_element[j].witness = tal_arr(ctx, u8, 2);
+			memset(fsv2.witness_stacks[i].witness_element[j].witness, 2, 2);
+		}
+	}
+
+	msg = towire_struct_funding_signed2(ctx, &fsv2);
+	fsv22 = fromwire_struct_funding_signed2(ctx, msg);
+	assert(funding_signed2_eq(&fsv2, fsv22));
+	test_corruption(&fsv2, fsv22, funding_signed2);
 
 	memset(&uah, 2, sizeof(uah));
 
