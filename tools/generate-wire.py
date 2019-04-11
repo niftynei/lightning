@@ -411,8 +411,9 @@ class Message(object):
             subcalls.append('fromwire_{}_array({}cursor, {}plen, {}, {});'
                             .format(basetype, p_ref, p_ref, name, num_elems))
         else:
-            subcalls.append('for (size_t i = 0; i < {}; i++)'
-                            .format(num_elems))
+            cursor_check = '' if not is_embedded else ' && *cursor'
+            subcalls.append('for (size_t i = 0; i < {}{}; i++)'
+                            .format(num_elems, cursor_check))
             if f.fieldtype.is_assignable():
                 subcalls.append('({})[i] = fromwire_{}({}cursor, {}plen);'
                                 .format(name, basetype, p_ref, p_ref))
