@@ -265,7 +265,7 @@ fromwire_tlv_impl_templ = """static bool fromwire_{tlv_name}_{name}({ctx}{args})
 \tif (start_len < len)
 \t\treturn false;
 {subcalls}
-\treturn cursor != NULL && (start_len - *plen == len);
+\treturn *cursor != NULL && (start_len - *plen == len);
 }}
 """
 
@@ -274,7 +274,7 @@ fromwire_subtype_impl_templ = """{static}bool fromwire_{name}({ctx}{args})
 
 {fields}
 {subcalls}
-\treturn cursor != NULL;
+\treturn *cursor != NULL;
 }}
 """
 
