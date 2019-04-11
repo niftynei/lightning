@@ -308,19 +308,6 @@ towire_tlv_templ = """u8 *towire_{name}(const tal_t *ctx{args})
 }}
 """
 
-fromwire_tlv_templ = """bool frowire_{name}({ctx}const void *p{args})
-{{
-{fields}
-\tconst u8 *cursor = p;
-\tsize_t plen = tal_count(p);
-
-\tif (frmwire_u16(&cursor, &plen) != {enum.name})
-\t\treturn false;
-{subcalls}
-\treturn cursor != NULL;
-}}
-"""
-
 printwire_header_templ = """void printwire_{name}(const char *fieldname, const u8 *cursor);
 """
 
