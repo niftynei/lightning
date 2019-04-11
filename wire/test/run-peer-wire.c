@@ -65,11 +65,18 @@ static void set_node_id(struct node_id *id)
 	(tal_count((p1)->field) == tal_count((p2)->field) \
 	 && (tal_count((p1)->field) == 0 || memcmp((p1)->field, (p2)->field, tal_bytelen((p1)->field)) == 0))
 
-#define eq_struct_set(p1, p2, field, type)				\
-	for (size_t i = 0; i < tal_count((p1)->field); i++) {		\
-		 assert(type##_eq(&(p1)->field[i],			\
-				       &(p2)->field[i]));		\
-	}								\
+#define eq_struct_set(p1, p2, field, type)						\
+	do {										\
+		ok &= (!(p1) && !(p2)) || ((p1) && (p2));				\
+		if (ok && (p1))								\
+			for (size_t i = 0; i < tal_count((p1)->field); i++) {		\
+				 ok &= (&(p1)->field[i] && &(p2)->field[i]) ||		\
+			       		(!&(p1)->field[i] && !&(p2)->field[i]);		\
+				 if (ok && &(p1)->field[i])				\
+					 ok &= (type##_eq(&(p1)->field[i],		\
+							       &(p2)->field[i]));	\
+			}								\
+	} while (0)									\
 
 /* Convenience structs for everyone! */
 struct msg_error {
@@ -1089,9 +1096,10 @@ static bool output_info_eq(const struct output_info *a,
 static bool funding_compose_eq(const struct msg_funding_compose *a,
 			       const struct msg_funding_compose *b)
 {
+	bool ok = true;
 	eq_struct_set(a, b, input_infos, input_info);
 	eq_struct_set(a, b, output_infos, output_info);
-	return eq_upto(a, b, input_infos);
+	return ok && eq_upto(a, b, input_infos);
 }
 
 static bool update_add_htlc_eq(const struct msg_update_add_htlc *a,
@@ -1387,6 +1395,7 @@ int main(void)
 	msg = towire_struct_funding_compose(ctx, &fcom);
 	fcom2 = fromwire_struct_funding_compose(ctx, msg);
 	assert(funding_compose_eq(&fcom, fcom2));
+	test_corruption(&fcom, fcom2, funding_compose);
 
 	memset(&uah, 2, sizeof(uah));
 
