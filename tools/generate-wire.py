@@ -119,6 +119,7 @@ partialtypemap = {
     'channel_id': FieldType('struct channel_id'),
     'chain_hash': FieldType('struct bitcoin_blkid'),
     'funding_txid': FieldType('struct bitcoin_txid'),
+    'funding_tx_id': FieldType('struct bitcoin_txid'),
     'pad': FieldType('pad'),
     'msat': FieldType('struct amount_msat'),
     'satoshis': FieldType('struct amount_sat'),
