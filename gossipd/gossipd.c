@@ -2304,6 +2304,7 @@ static struct io_plan *get_incoming_channels(struct io_conn *conn,
 	bool has_public;
 	bool *exposeprivate;
 
+	status_debug("BOOM gossipd incoming channels: started method");
 	if (!fromwire_gossip_get_incoming_channels(tmpctx, msg, &exposeprivate))
 		master_badmsg(WIRE_GOSSIP_GET_INCOMING_CHANNELS, msg);
 
@@ -2354,6 +2355,7 @@ static struct io_plan *get_incoming_channels(struct io_conn *conn,
 		msg = towire_gossip_get_incoming_channels_reply(NULL, private);
 	else
 		msg = towire_gossip_get_incoming_channels_reply(NULL, public);
+	status_debug("BOOM gossipd incoming channels: sending response to conn daemon");
 	daemon_conn_send(daemon->master, take(msg));
 
 	return daemon_conn_read_next(conn, daemon->master);

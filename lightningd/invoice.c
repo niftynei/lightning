@@ -464,6 +464,7 @@ static void gossipd_incoming_channels_reply(struct subd *gossipd,
 	const struct invoice_details *details;
 	struct wallet *wallet = info->cmd->ld->wallet;
 
+	log_debug(info->cmd->ld->log, "BOOM lightningd invoice: got response from gossipd");
 	if (!fromwire_gossip_get_incoming_channels_reply(tmpctx, msg, &inchans))
 		fatal("Gossip gave bad GOSSIP_GET_INCOMING_CHANNELS_REPLY %s",
 		      tal_hex(msg, msg));
@@ -539,6 +540,7 @@ static void gossipd_incoming_channels_reply(struct subd *gossipd,
 	}
 	json_object_end(response);
 
+	log_debug(info->cmd->ld->log, "BOOM lightningd invoice: sending back command response");
 	was_pending(command_success(info->cmd, response));
 }
 
@@ -778,6 +780,7 @@ static struct command_result *json_invoice(struct command *cmd,
 
 	log_debug(cmd->ld->log, "exposeprivate = %s",
 		  exposeprivate ? (*exposeprivate ? "TRUE" : "FALSE") : "NULL");
+	log_debug(cmd->ld->log, "BOOM lightningd init invoice: sending request to gossipd");
 	subd_req(cmd, cmd->ld->gossip,
 		 take(towire_gossip_get_incoming_channels(NULL, exposeprivate)),
 		 -1, 0, gossipd_incoming_channels_reply, info);
