@@ -361,6 +361,7 @@ const struct utxo **wallet_select_coins(const tal_t *ctx, struct wallet *w,
 					const u32 feerate_per_kw,
 					size_t outscriptlen,
 					u32 maxheight,
+					bool double_fee_estimate,
 					struct amount_sat *fee_estimate,
 					struct amount_sat *change_satoshi);
 
@@ -368,6 +369,7 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 				      const u32 feerate_per_kw,
 				      size_t outscriptlen,
 				      u32 maxheight,
+				      bool double_fee_estimate,
 				      struct amount_sat *sat,
 				      struct amount_sat *fee_estimate);
 
