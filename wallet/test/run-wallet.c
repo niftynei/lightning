@@ -778,7 +778,7 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 	/* Now select them */
 	utxos = wallet_select_coins(w, w, AMOUNT_SAT(2), 1000, 21,
 				    0 /* no confirmations required */,
-				    false,
+				    NOT_DF,
 				    &fee_estimate, &change_satoshis);
 	CHECK_MSG(utxos && tal_count(utxos) == 2,
 	    tal_fmt(w, "expected 2 utxos, have %ld", utxos ? tal_count(utxos) : 0));
@@ -799,7 +799,7 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 	/* Now test double fee estimation (for dual funding) */
 	utxos = wallet_select_coins(w, w, AMOUNT_SAT(2), 1000, 21,
 				    0 /* no confirmations required */,
-				    true,
+				    PAY,
 				    &fee_estimate, &change_satoshis);
 	CHECK_MSG(utxos && tal_count(utxos) == 2,
 	    tal_fmt(w, "expected 2 utxos, have %ld", utxos ? tal_count(utxos) : 0));
@@ -808,6 +808,23 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 	      type_to_string(w, struct amount_sat, &fee_estimate)));
 	CHECK_MSG(change_satoshis.satoshis == 730, /* Raw: test suite */
 	    tal_fmt(w, "change satoshis: %s != 730sat",
+	      type_to_string(w, struct amount_sat, &change_satoshis)));
+
+	/* Now un-reserve them for the tests below */
+	tal_free(utxos);
+
+	/* Now test no fees (for dual funding) */
+	utxos = wallet_select_coins(w, w, AMOUNT_SAT(2001), 1000, 21,
+				    0 /* no confirmations required */,
+				    NO_PAY,
+				    &fee_estimate, &change_satoshis);
+	CHECK_MSG(utxos && tal_count(utxos) == 2,
+	    tal_fmt(w, "expected 2 utxos, have %ld", utxos ? tal_count(utxos) : 0));
+	CHECK_MSG(fee_estimate.satoshis == 0, /* Raw: test suite */
+	    tal_fmt(w, "fee estimate: %s != 0sat",
+	      type_to_string(w, struct amount_sat, &fee_estimate)));
+	CHECK_MSG(change_satoshis.satoshis == 599, /* Raw: test suite */
+	    tal_fmt(w, "change satoshis: %s != 599sat",
 	      type_to_string(w, struct amount_sat, &change_satoshis)));
 
 	/* Now un-reserve them for the tests below */

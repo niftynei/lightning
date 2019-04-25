@@ -132,7 +132,7 @@ struct command_result *wtx_select_utxos(struct wallet_tx *tx,
 		tx->utxos = wallet_select_all(tx, tx->cmd->ld->wallet,
 					      fee_rate_per_kw, out_len,
 					      maxheight,
-					      false,
+					      NOT_DF,
 					      &amount,
 					      &fee_estimate);
 		res = check_amount(tx, amount);
@@ -156,7 +156,7 @@ struct command_result *wtx_select_utxos(struct wallet_tx *tx,
 					tx->amount,
 					fee_rate_per_kw, out_len,
 					maxheight,
-					false,
+					NOT_DF,
 					&fee_estimate, &tx->change);
 	res = check_amount(tx, tx->amount);
 	if (res)

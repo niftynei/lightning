@@ -80,6 +80,12 @@ enum output_status {
 	output_state_any = 255
 };
 
+enum dual_funding_fees {
+	NOT_DF = 0,
+	PAY = 1,
+	NO_PAY = 2
+};
+
 static inline enum output_status output_status_in_db(enum output_status s)
 {
 	switch (s) {
@@ -361,7 +367,7 @@ const struct utxo **wallet_select_coins(const tal_t *ctx, struct wallet *w,
 					const u32 feerate_per_kw,
 					size_t outscriptlen,
 					u32 maxheight,
-					bool double_fee_estimate,
+					enum dual_funding_fees df_fee_scheme,
 					struct amount_sat *fee_estimate,
 					struct amount_sat *change_satoshi);
 
@@ -369,7 +375,7 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 				      const u32 feerate_per_kw,
 				      size_t outscriptlen,
 				      u32 maxheight,
-				      bool double_fee_estimate,
+				      enum dual_funding_fees df_fee_scheme,
 				      struct amount_sat *sat,
 				      struct amount_sat *fee_estimate);
 
