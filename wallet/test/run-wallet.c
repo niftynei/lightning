@@ -740,7 +740,7 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 	CHECK(w);
 
 	memset(&u, 0, sizeof(u));
-	u.amount = AMOUNT_SAT(1);
+	u.amount = AMOUNT_SAT(600);
 	pubkey_from_der(tal_hexdata(w, "02a1633cafcc01ebfb6d78e39f687a1f0995c62fc95f51ead10a02ee0be551b5dc", 66), 33, &pk);
 	node_id_from_pubkey(&id, &pk);
 
@@ -756,6 +756,7 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 
 	/* Attempt to save an UTXO with close_info set */
 	memset(&u.txid, 1, sizeof(u.txid));
+	u.amount = AMOUNT_SAT(2000);
 	u.close_info = tal(w, struct unilateral_close_info);
 	u.close_info->channel_id = 42;
 	u.close_info->peer_id = id;
@@ -764,10 +765,18 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 		  "wallet_add_utxo with close_info");
 
 	/* Now select them */
-	utxos = wallet_select_coins(w, w, AMOUNT_SAT(2), 0, 21,
+	utxos = wallet_select_coins(w, w, AMOUNT_SAT(2), 1000, 21,
 				    0 /* no confirmations required */,
+				    false,
 				    &fee_estimate, &change_satoshis);
-	CHECK(utxos && tal_count(utxos) == 2);
+	CHECK_MSG(utxos && tal_count(utxos) == 2,
+	    tal_fmt(w, "expected 2 utxos, have %ld", utxos ? tal_count(utxos) : 0));
+	CHECK_MSG(fee_estimate.satoshis == 1014, /* Raw: test suite */
+	    tal_fmt(w, "fee estimate: %s != 1014sat",
+	      type_to_string(w, struct amount_sat, &fee_estimate)));
+	CHECK_MSG(change_satoshis.satoshis == 1584, /* Raw: test suite */
+	    tal_fmt(w, "change satoshis: %s != 1584sat",
+	      type_to_string(w, struct amount_sat, &change_satoshis)));
 
 	u = *utxos[1];
 	CHECK(u.close_info->channel_id == 42 &&
@@ -776,6 +785,22 @@ static bool test_wallet_outputs(struct lightningd *ld, const tal_t *ctx)
 	/* Now un-reserve them for the tests below */
 	tal_free(utxos);
 
+	/* Now test double fee estimation (for dual funding) */
+	utxos = wallet_select_coins(w, w, AMOUNT_SAT(2), 1000, 21,
+				    0 /* no confirmations required */,
+				    true,
+				    &fee_estimate, &change_satoshis);
+	CHECK_MSG(utxos && tal_count(utxos) == 2,
+	    tal_fmt(w, "expected 2 utxos, have %ld", utxos ? tal_count(utxos) : 0));
+	CHECK_MSG(fee_estimate.satoshis == 1868, /* Raw: test suite */
+	    tal_fmt(w, "fee estimate: %s != 1868sat",
+	      type_to_string(w, struct amount_sat, &fee_estimate)));
+	CHECK_MSG(change_satoshis.satoshis == 730, /* Raw: test suite */
+	    tal_fmt(w, "change satoshis: %s != 730sat",
+	      type_to_string(w, struct amount_sat, &change_satoshis)));
+
+	/* Now un-reserve them for the tests below */
+	tal_free(utxos);
 
 	/* Attempt to reserve the utxo */
 	CHECK_MSG(wallet_update_output_status(w, &u.txid, u.outnum,
