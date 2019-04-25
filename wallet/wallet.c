@@ -275,7 +275,7 @@ static const struct utxo **wallet_select(const tal_t *ctx, struct wallet *w,
 					 const u32 feerate_per_kw,
 					 size_t outscriptlen,
 					 bool may_have_change,
-					 bool double_fee_estimate,
+					 enum dual_funding_fees df_fee_scheme,
 					 u32 maxheight,
 					 struct amount_sat *satoshi_in,
 					 struct amount_sat *fee_estimate)
@@ -297,7 +297,7 @@ static const struct utxo **wallet_select(const tal_t *ctx, struct wallet *w,
 		weight += (8 + 1 + BITCOIN_SCRIPTPUBKEY_P2WPKH_LEN) * 4;
 
 	/* include another output estimate for dual-funded transaction */
-	if (double_fee_estimate)
+	if (df_fee_scheme == PAY)
 		weight += (8 + 1 + BITCOIN_SCRIPTPUBKEY_P2WPKH_LEN) * 4;
 
 
@@ -341,7 +341,7 @@ static const struct utxo **wallet_select(const tal_t *ctx, struct wallet *w,
 		weight += input_weight;
 		
 		/* If dual-funded, they might contribute up this many inputs as well */
-		if (double_fee_estimate)
+		if (df_fee_scheme == PAY)
 			weight += input_weight;
 
 		if (!amount_sat_add(satoshi_in, *satoshi_in, u->amount))
@@ -352,7 +352,11 @@ static const struct utxo **wallet_select(const tal_t *ctx, struct wallet *w,
 			      type_to_string(tmpctx, struct amount_sat,
 					     &u->amount));
 
-		*fee_estimate = amount_tx_fee(feerate_per_kw, weight);
+		/* for dual-funded transactions that we're contributing to,
+		 * we don't need to cover our own fees */
+		if (df_fee_scheme != NO_PAY)
+			*fee_estimate = amount_tx_fee(feerate_per_kw, weight);
+
 		if (!amount_sat_add(&needed, sat, *fee_estimate))
 			fatal("Overflow in fee estimate %zu/%zu %s + %s",
 			      i, tal_count(available),
@@ -372,7 +376,7 @@ const struct utxo **wallet_select_coins(const tal_t *ctx, struct wallet *w,
 					const u32 feerate_per_kw,
 					size_t outscriptlen,
 					u32 maxheight,
-					bool double_fee_estimate,
+					enum dual_funding_fees df_fee_scheme,
 					struct amount_sat *fee_estimate,
 					struct amount_sat *change)
 {
@@ -380,8 +384,9 @@ const struct utxo **wallet_select_coins(const tal_t *ctx, struct wallet *w,
 	const struct utxo **utxo;
 
 	utxo = wallet_select(ctx, w, sat, feerate_per_kw,
-			     outscriptlen, true, double_fee_estimate,
-			     maxheight, &satoshi_in, fee_estimate);
+			     outscriptlen, true,
+			     df_fee_scheme, maxheight,
+			     &satoshi_in, fee_estimate);
 
 	/* Couldn't afford it? */
 	if (!amount_sat_sub(change, satoshi_in, sat)
@@ -425,7 +430,7 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 				      const u32 feerate_per_kw,
 				      size_t outscriptlen,
 				      u32 maxheight,
-				      bool double_fee_estimate,
+				      enum dual_funding_fees df_fee_scheme,
 				      struct amount_sat *value,
 				      struct amount_sat *fee_estimate)
 {
@@ -435,7 +440,8 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 	/* Huge value, but won't overflow on addition */
 	utxo = wallet_select(ctx, w, AMOUNT_SAT(1ULL << 56), feerate_per_kw,
 			     outscriptlen, false, maxheight,
-			     double_fee_estimate, &satoshi_in, fee_estimate);
+			     df_fee_scheme,
+			     &satoshi_in, fee_estimate);
 
 	/* Can't afford fees? */
 	if (!amount_sat_sub(value, satoshi_in, *fee_estimate))
