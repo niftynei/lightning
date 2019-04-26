@@ -1033,6 +1033,8 @@ tlv__type_impl_towire_fields = """\tif ({tlv_name}->{name}) {{
 tlv__type_impl_towire_template = """static void towire__{tlv_name}(const tal_t *ctx, u8 **p, const struct {tlv_name} *{tlv_name}) {{
 \tu64 msg_len;
 \tu8 *tlv_msg;
+\tif (!{tlv_name})
+\t\treturn;
 {fields}}}
 """
 
