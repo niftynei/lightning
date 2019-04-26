@@ -1234,6 +1234,22 @@ static bool check_reserve(struct state *state)
 	return true;
 }
 
+static void check_channel_id(struct state *state,
+		             struct channel_id *id_in,
+			     struct channel_id *original_channel_id)
+{
+	/* BOLT #2:
+	 *
+	 * The `temporary_channel_id` MUST be the same as the
+	 * `temporary_channel_id` in the `open_channel` message.
+	 */
+	if (!channel_id_eq(id_in, original_channel_id))
+		peer_failed(state->pps, id_in,
+			    "channel establishment: ids don't match: sent %s got %s",
+			    type_to_string(tmpctx, struct channel_id, original_channel_id),
+			    type_to_string(tmpctx, struct channel_id, id_in));
+}
+
 /*~ The peer sent us an `open_channel`, that means we're the fundee. */
 static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 {
@@ -1389,17 +1405,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 			    &state->channel_id,
 			    "Parsing funding_created");
 
-	/* BOLT #2:
-	 *
-	 * The `temporary_channel_id` MUST be the same as the
-	 * `temporary_channel_id` in the `open_channel` message.
-	 */
-	if (!channel_id_eq(&id_in, &state->channel_id))
-		peer_failed(state->pps, &id_in,
-			    "funding_created ids don't match: sent %s got %s",
-			    type_to_string(msg, struct channel_id,
-					   &state->channel_id),
-			    type_to_string(msg, struct channel_id, &id_in));
+	check_channel_id(state, &id_in, &state->channel_id);
 
 	/* Now we can create the channel structure. */
 	state->channel = new_initial_channel(state,
