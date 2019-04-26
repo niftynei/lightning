@@ -1119,6 +1119,121 @@ fail:
 	return NULL;
 }
 
+static bool check_open_channel_state(struct state *state,
+		struct bitcoin_blkid *chain_hash)
+{
+	/* BOLT #2:
+	 *
+	 * The receiving node MUST fail the channel if:
+	 *  - the `chain_hash` value is set to a hash of a chain
+	 *  that is unknown to the receiver.
+	 */
+	if (!bitcoin_blkid_eq(chain_hash,
+			      &state->chainparams->genesis_blockhash)) {
+		negotiation_failed(state, false,
+				   "Unknown chain-hash %s",
+				   type_to_string(tmpctx,
+						  struct bitcoin_blkid,
+						  chain_hash));
+		return false;
+	}
+
+	/* BOLT #2 FIXME:
+	 *
+	 * The receiving node ... MUST fail the channel if `funding-satoshis`
+	 * is greater than or equal to 2^24 */
+	if (amount_sat_greater(state->funding, state->chainparams->max_funding)) {
+		negotiation_failed(state, false,
+				   "funding_satoshis %s too large",
+				   type_to_string(tmpctx, struct amount_sat,
+						  &state->funding));
+		return false;
+	}
+
+	/* BOLT #2:
+	 *
+	 * The receiving node MUST fail the channel if:
+	 * ...
+	 *   - `push_msat` is greater than `funding_satoshis` * 1000.
+	 */
+	if (amount_msat_greater_sat(state->push_msat, state->funding)) {
+		peer_failed(state->pps,
+			    &state->channel_id,
+			    "Their push_msat %s"
+			    " would be too large for funding_satoshis %s",
+			    type_to_string(tmpctx, struct amount_msat,
+					   &state->push_msat),
+			    type_to_string(tmpctx, struct amount_sat,
+					   &state->funding));
+		return false;
+	}
+
+	return true;
+}
+
+static bool check_feerate(struct state *state, u32 feerate_per_kw)
+{
+	/* BOLT #2:
+	 *
+	 * The receiving node MUST fail the channel if:
+	 *...
+	 *  - it considers `feerate_per_kw` too small for timely processing or
+	 *    unreasonably large.
+	 */
+	if (feerate_per_kw < state->min_feerate) {
+		negotiation_failed(state, false,
+				   "feerate_per_kw %u below minimum %u",
+				   feerate_per_kw, state->min_feerate);
+		return false;
+	}
+
+	if (feerate_per_kw > state->max_feerate) {
+		negotiation_failed(state, false,
+				   "feerate_per_kw %u above maximum %u",
+				   feerate_per_kw, state->max_feerate);
+		return false;
+	}
+
+	return true;
+}
+
+static bool check_reserve(struct state *state)
+{
+	/* BOLT #2:
+	 *
+	 * The sender:
+	 *...
+	 * - MUST set `channel_reserve_satoshis` greater than or equal to
+	 *   `dust_limit_satoshis` from the `open_channel` message.
+	 * - MUST set `dust_limit_satoshis` less than or equal to
+         *   `channel_reserve_satoshis` from the `open_channel` message.
+	 */
+	if (amount_sat_greater(state->remoteconf.dust_limit,
+			       state->localconf.channel_reserve)) {
+		negotiation_failed(state, false,
+				   "Our channel reserve %s"
+				   " would be below their dust %s",
+				   type_to_string(tmpctx, struct amount_sat,
+						  &state->localconf.channel_reserve),
+				   type_to_string(tmpctx, struct amount_sat,
+						  &state->remoteconf.dust_limit));
+		return false;
+	}
+	if (amount_sat_greater(state->localconf.dust_limit,
+			       state->remoteconf.channel_reserve)) {
+		negotiation_failed(state, false,
+				   "Our dust limit %s"
+				   " would be above their reserve %s",
+				   type_to_string(tmpctx, struct amount_sat,
+						  &state->localconf.dust_limit),
+				   type_to_string(tmpctx, struct amount_sat,
+						  &state->remoteconf.channel_reserve));
+		return false;
+	}
+
+	return true;
+}
+
 /*~ The peer sent us an `open_channel`, that means we're the fundee. */
 static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 {
@@ -1192,107 +1307,17 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 			    "Bad open_channel %s",
 			    tal_hex(open_channel_msg, open_channel_msg));
 
-	/* BOLT #2:
-	 *
-	 * The receiving node MUST fail the channel if:
-	 *  - the `chain_hash` value is set to a hash of a chain
-	 *  that is unknown to the receiver.
-	 */
-	if (!bitcoin_blkid_eq(&chain_hash,
-			      &state->chainparams->genesis_blockhash)) {
-		negotiation_failed(state, false,
-				   "Unknown chain-hash %s",
-				   type_to_string(tmpctx,
-						  struct bitcoin_blkid,
-						  &chain_hash));
+	if (!check_open_channel_state(state, &chain_hash))
 		return NULL;
-	}
 
-	/* BOLT #2 FIXME:
-	 *
-	 * The receiving node ... MUST fail the channel if `funding-satoshis`
-	 * is greater than or equal to 2^24 */
-	if (amount_sat_greater(state->funding, state->chainparams->max_funding)) {
-		negotiation_failed(state, false,
-				   "funding_satoshis %s too large",
-				   type_to_string(tmpctx, struct amount_sat,
-						  &state->funding));
+	if (!check_feerate(state, state->feerate_per_kw))
 		return NULL;
-	}
-
-	/* BOLT #2:
-	 *
-	 * The receiving node MUST fail the channel if:
-	 * ...
-	 *   - `push_msat` is greater than `funding_satoshis` * 1000.
-	 */
-	if (amount_msat_greater_sat(state->push_msat, state->funding)) {
-		peer_failed(state->pps,
-			    &state->channel_id,
-			    "Their push_msat %s"
-			    " would be too large for funding_satoshis %s",
-			    type_to_string(tmpctx, struct amount_msat,
-					   &state->push_msat),
-			    type_to_string(tmpctx, struct amount_sat,
-					   &state->funding));
-		return NULL;
-	}
-
-	/* BOLT #2:
-	 *
-	 * The receiving node MUST fail the channel if:
-	 *...
-	 *  - it considers `feerate_per_kw` too small for timely processing or
-	 *    unreasonably large.
-	 */
-	if (state->feerate_per_kw < state->min_feerate) {
-		negotiation_failed(state, false,
-				   "feerate_per_kw %u below minimum %u",
-				   state->feerate_per_kw, state->min_feerate);
-		return NULL;
-	}
-
-	if (state->feerate_per_kw > state->max_feerate) {
-		negotiation_failed(state, false,
-				   "feerate_per_kw %u above maximum %u",
-				   state->feerate_per_kw, state->max_feerate);
-		return NULL;
-	}
 
 	/* This reserves 1% of the channel (rounded up) */
 	set_reserve(state);
 
-	/* BOLT #2:
-	 *
-	 * The sender:
-	 *...
-	 * - MUST set `channel_reserve_satoshis` greater than or equal to
-	 *   `dust_limit_satoshis` from the `open_channel` message.
-	 * - MUST set `dust_limit_satoshis` less than or equal to
-         *   `channel_reserve_satoshis` from the `open_channel` message.
-	 */
-	if (amount_sat_greater(state->remoteconf.dust_limit,
-			       state->localconf.channel_reserve)) {
-		negotiation_failed(state, false,
-				   "Our channel reserve %s"
-				   " would be below their dust %s",
-				   type_to_string(tmpctx, struct amount_sat,
-						  &state->localconf.channel_reserve),
-				   type_to_string(tmpctx, struct amount_sat,
-						  &state->remoteconf.dust_limit));
+	if (!check_reserve(state))
 		return NULL;
-	}
-	if (amount_sat_greater(state->localconf.dust_limit,
-			       state->remoteconf.channel_reserve)) {
-		negotiation_failed(state, false,
-				   "Our dust limit %s"
-				   " would be above their reserve %s",
-				   type_to_string(tmpctx, struct amount_sat,
-						  &state->localconf.dust_limit),
-				   type_to_string(tmpctx, struct amount_sat,
-						  &state->remoteconf.channel_reserve));
-		return NULL;
-	}
 
 	/* These checks are the same whether we're funder or fundee... */
 	if (!check_config_bounds(state, &state->remoteconf, false))
