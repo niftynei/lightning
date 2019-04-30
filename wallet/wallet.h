@@ -397,6 +397,13 @@ const struct utxo **wallet_select_specific(const tal_t *ctx, struct wallet *w,
  */
 void wallet_confirm_utxos(struct wallet *w, const struct utxo **utxos);
 
+/** derive_redeemscript - Get the redeemscript for a p2sh-p2pwkh output.
+ *
+ * @w: (in) wallet holding the pubkeys
+ * @keyindex: (in) the bip32 derivation that redeemscript pubkey is located at
+ */
+u8 *derive_redeemscript(struct wallet *w, u32 keyindex);
+
 /**
  * wallet_can_spend - Do we have the private key matching this scriptpubkey?
  *
