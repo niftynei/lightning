@@ -53,6 +53,8 @@
 #define REQ_FD STDIN_FILENO
 #define HSM_FD 6
 
+#define REQUIRED_CONFIRM_HEIGHT 1
+
 /* Global state structure.  This is only for the one specific peer and channel */
 struct state {
 	struct per_peer_state *pps;
@@ -88,6 +90,8 @@ struct state {
 	struct amount_sat funding;
 	struct amount_msat push_msat;
 	u32 feerate_per_kw;
+	/* Fee rate to use for calculating the funding transaction */
+	u32 feerate_per_kw_funding;
 	struct bitcoin_txid funding_txid;
 	u16 funding_txout;
 	/* If set, this is the scriptpubkey they *must* close with */
@@ -1543,6 +1547,245 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 				     state->remote_upfront_shutdown_script);
 }
 
+#if EXPERIMENTAL_FEATURES
+static struct utxo **select_available_input_coins(struct tal_t *ctx, struct wallet w, 
+						  u32 max_utxo_allowed, 
+				        	  struct amount_sat *satoshi_amt)
+{
+	const struct utxo **utxos;
+
+	utxos = wallet_select_max(ctx, w, target_satoshi, 
+				 max_utxo_allowed, satoshi_amt);
+	if (!tal_count(utxos))
+		return tal_free(utxos);
+
+	return utxos;
+}
+
+static struct input_info **utxos_to_inputs(struct tal_t *ctx, struct wallet *w,
+					   struct utxo **utxos TAKES)
+{
+	size_t i = 0;
+	struct input_info **inputs = tal_arr(ctx, struct input_info*, 0);	
+
+	for (i = 0; i < tal_count(utxos); i++) {
+		struct input_info *input = tal(inputs, struct input_info);
+
+		input->satoshis = utxos[i]->amount;
+		input->prevtx_txid = utxos[i]->txid;
+		input->prevtx_vout = utxos[i]->outnum;
+		input->prevtx_scriptpubkey = tal_dup_arr(input, u8, utxos[i]->scriptPubkey,
+							 tal_bytelen(utxos[i]->scriptPubkey), 0);
+
+		// All our outputs are sig + key (P2WPKH or P2SH-P2WPKH)
+		input->max_witness_len = 1 + 1 + 73 + 1 + 33;
+
+		/*
+		 *	FIXME: add BOLT reference when merged.
+		 *	`input_info`.`script` is the scriptPubkey data for the input.
+		 *	NB: for native SegWit inputs (P2WPKH and P2WSH) inputs, the `script` field
+		 *	will be empty. 
+		 */
+		if (utxos[i]->is_p2sh)
+			// todo: where does wallet come from?
+			input->script = derive_redeemscript(w, utxos[i]->keyindex);
+
+		tal_array_expand(&inputs, input);
+	}
+	if (taken(utxos))
+		tal_free(utxos);
+
+	return inputs;
+}
+
+static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
+{
+	struct channel_id id_in;
+	struct basepoints theirs;
+	struct pubkey their_funding_pubkey;
+	struct bitcoin_signature theirsig, sig;
+	struct bitcoin_tx *local_commit, *remote_commit;
+	struct bitcoin_blkid chain_hash;
+	struct opening_tlv *opening_tlv;
+	struct input_info **remote_inputs, **our_inputs;
+	struct output_info **remote_outputs, **our_outputs;
+	struct amount_sat max_avail_sat, our_funding;
+	u32 max_allowed_inputs;
+	struct utxos **available_utxos, input_utxos;
+
+	u8 *msg;
+	const u8 *wscript;
+	u8 channel_flags;
+	char* err_reason;
+
+	/* BOLT #2:
+	 *
+	 * The receiving node MUST fail the channel if:
+	 *...
+	 *  - `funding_pubkey`, `revocation_basepoint`, `htlc_basepoint`,
+	 *    `payment_basepoint`, or `delayed_payment_basepoint` are not valid
+	 *     DER-encoded compressed secp256k1 pubkeys.
+	 */
+	if (!fromwire_open_channel2(tmpctx, open_channel2_msg, &chain_hash,
+				   &state->channel_id,
+				   &state->push_msat,
+				   &state->funding,
+				   &state->remoteconf.dust_limit,
+				   &state->remoteconf.max_htlc_value_in_flight,
+				   &state->remoteconf.channel_reserve,
+				   &state->remoteconf.htlc_minimum,
+				   &state->feerate_per_kw,
+				   &state->feerate_per_kw_funding,
+				   &state->remoteconf.to_self_delay,
+				   &state->remoteconf.max_accepted_htlcs,
+				   &their_funding_pubkey,
+				   &theirs.revocation,
+				   &theirs.payment,
+				   &theirs.delayed_payment,
+				   &theirs.htlc,
+				   &state->first_per_commitment_point[REMOTE],
+				   &channel_flags,
+				   opening_tlv))
+		peer_failed(&state->cs, NULL,
+			    "Bad open_channel2 %s",
+			    tal_hex(open_channel2_msg, open_channel2_msg));
+
+	if (!check_open_channel_state(state, &chain_hash))
+		return NULL;
+
+	if (!check_feerate(state, state->feerate_per_kw))
+		return NULL;
+
+	if (!check_feerate(state, state->feerate_per_kw_funding))
+		return NULL;
+
+	/**
+	 * FIXME: Fill in with bolt info when merged
+  	 *- if is the `accepter`:
+  	 *  - consider the `contrib_count` the total of `num_inputs` plus
+  	 *    `num_outputs' from `funding_compose`, with minimum 2.
+  	 *  - MUST NOT send `input_info`s or `output_info` which
+  	 *    exceeds the `contrib_count` limit.
+  	 *  - MAY send zero inputs and/or outputs.
+	 */
+	/* max allowed is remote's sum(inputs + outputs) minus one change output */
+	max_allowed_inputs = contrib_count - 1;
+
+	available_utxos = select_available_input_coins(ctx, max_allowed_inputs, &max_avail_sat);
+
+	// FIXME: add a hook for deciding how much to fund a channel with.
+	// - send max_avail_sat, node_id, their funding amount.
+	
+	/* for now, we attempt to make a balanced channel */
+	if (amount_sat_greater_eq(max_avail_sat, state->funding))
+		our_funding.satoshis = state->funding; /* Raw: set value */
+	else
+		our_funding = max_avail_sat;
+
+	/* obfuscate our funding availability, a wee bit */
+	if (pseudorand(7) % 7)
+		our_funding.satoshis = our_funding.satoshis * psuedorand(100) / 100; /* Raw: value set */
+
+	/* Unreserve and then select our UTXO set */
+	*/ START HERE !!
+
+	/* If they've sent an option_upfront_shutdown_script, we should
+	 * save it */
+	if (opening_tlv && opening_tlv->option_upfront_shutdown_script)
+		&state->remoteconf.shutdown_scriptpubkey = 
+			tal_steal(state, 
+				opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey);
+
+	/* OK, we accept! */
+	msg = towire_accept_channel2(state, &state->channel_id,
+				    state->localconf.dust_limit,
+				    state->localconf.max_htlc_value_in_flight,
+				    state->localconf.channel_reserve,
+				    state->localconf.htlc_minimum,
+				    state->minimum_depth,
+				    state->localconf.to_self_delay,
+				    state->localconf.max_accepted_htlcs,
+				    &state->our_funding_pubkey,
+				    &state->our_points.revocation,
+				    &state->our_points.payment,
+				    &state->our_points.delayed_payment,
+				    &state->our_points.htlc,
+				    &state->first_per_commitment_point[LOCAL],
+				    NULL);
+
+	sync_crypto_write(&state->cs, PEER_FD, take(msg));
+
+	peer_billboard(false,
+		       "Incoming channel: accepted, now waiting for them to send funding_compose");
+
+	/* This is a loop which handles gossip until we get a non-gossip msg */
+	msg = opening_negotiate_msg(tmpctx, state, false);
+	if (!msg)
+		return NULL;
+
+	/* The next message should be "funding_compose" which tells us the funding
+	 * inputs and outputs they've selected. */
+	if (!fromwire_funding_compose(tmpctx, msg, &id_in, 
+				      remote_inputs, remote_outputs))
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Parsing received funding_compose");
+
+	check_channel_id(&id_in, &state->channel_id);
+
+	check_inputs(remote_inputs);
+
+	// FIXME: what is there to check wrt output validity?
+	check_outputs(remote_outputs);
+
+
+	// todo: winnow inputs to amount selected by hook callout
+	// make sure that you un-reserve the inputs!??
+	our_inputs = utxos_to_inputs(ctx, take(utxos));
+				
+	// FIXME: for now we're putting the max amount we have available
+	// into a channel. this isn't a good default behaviour
+	if (!amount_sat_add(&state->funding, state->funding, max_avail_sat))
+		fatal("Overflow in total channel funding satoshis %s + %s",
+		      type_to_string(tmpctx, struct amount_sat,
+				     state->funding),
+		      type_to_string(tmpctx, struct amount_sat,
+				     max_avail_sat));
+
+	/* This reserves 1% of the channel (rounded up) */
+	set_reserve(state);
+
+	if (!check_reserve(state))
+		return NULL;
+
+	/* These checks are the same whether we're funder or fundee... */
+	if (!check_config_bounds(state, &state->remoteconf, false))
+		return NULL;
+
+	msg = towire_funding_compose(ctx, state->channel_id, *our_inputs, our_outputs);
+
+	sync_crypto_write(&state->cs, PEER_FD, take(msg));
+
+	peer_billboard(false,
+		       "Incoming channel: funding_compose sent, now waiting for commitment_signed");
+
+	/* This is a loop which handles gossip until we get a non-gossip msg */
+	msg = opening_negotiate_msg(tmpctx, state, false);
+	if (!msg)
+		return NULL;
+
+	// build the funding transaction (and verify that the commitment txns sent are valid)
+	
+	// send commitment_signed
+
+	peer_billboard(false,
+		       "Incoming channel: commitment_signed sent, waiting for funding_signed2");
+
+	// send our signatures.
+	// broadcast transaction!
+}
+#endif /* EXPERIMENTAL_FEATURES */
+
 /*~ Standard "peer sent a message, handle it" demuxer.  Though it really only
  * handles one message, we use the standard form as principle of least
  * surprise. */
@@ -1556,6 +1799,8 @@ static u8 *handle_peer_in(struct state *state)
 	case WIRE_OPEN_CHANNEL:
 		return fundee_channel(state, msg);
 
+	case WIRE_OPEN_CHANNEL2:
+		return fundee_channel2(state, msg);
 	/* These are handled by handle_peer_gossip_or_error. */
 	case WIRE_PING:
 	case WIRE_PONG:
@@ -1576,7 +1821,6 @@ static u8 *handle_peer_in(struct state *state)
 	case WIRE_FUNDING_SIGNED:
 	case WIRE_FUNDING_LOCKED:
 #if EXPERIMENTAL_FEATURES
-	case WIRE_OPEN_CHANNEL2:
 	case WIRE_ACCEPT_CHANNEL2:
 	case WIRE_FUNDING_COMPOSE:
 	case WIRE_FUNDING_SIGNED2:

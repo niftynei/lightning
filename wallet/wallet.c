@@ -219,6 +219,31 @@ struct utxo **wallet_get_utxos(const tal_t *ctx, struct wallet *w, const enum ou
 	return results;
 }
 
+/* Select highest value, confirmed, UTXOs. Optionally limit number to return */
+struct utxo **wallet_get_ordered_confirmed_utxo(const tal_t *ctx, struct wallet *w, 
+					        const enum output_status state)
+{
+	struct utxo **results;
+	int i;
+	sqlite3_stmt *stmt;
+
+	if (state == output_state_any)
+		stmt = db_select_prepare(w->db, UTXO_FIELDS " FROM outputs WHERE blockheight IS NOT NULL ORDER BY value DESC");
+	else {
+		stmt = db_select_prepare(w->db, UTXO_FIELDS
+					 " FROM outputs WHERE status=?1 AND blockheight IS NOT NULL ORDER BY value DESC");
+		sqlite3_bind_int(stmt, 1, output_status_in_db(state));
+	}
+
+	results = tal_arr(ctx, struct utxo*, 0);
+	for (i=0; db_select_step(w->db, stmt); i++) {
+		struct utxo *u = wallet_stmt2output(results, stmt);
+		tal_arr_expand(&results, u);
+	}
+
+	return results;
+}
+
 struct utxo **wallet_get_unconfirmed_closeinfo_utxos(const tal_t *ctx, struct wallet *w)
 {
 	struct utxo **results;
@@ -448,6 +473,50 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 		return tal_free(utxo);
 
 	return utxo;
+}
+
+const struct **utxo wallet_select_max(const tal_t ctx, struct wallet *w,
+				      u32 max_utxos, struct amount_sat *sat)
+{
+	size_t i = 0;
+	struct utxo **available;
+	const struct utxo **utxos = tal_arr(ctx, const struct utxo *, 0);
+	tal_add_destructor2(utxos, destroy_utxos, w);
+
+	available = wallet_get_ordered_confirmed_utxos(ctx, w, 
+						output_state_available);
+
+	/* Mark them all as reserved and sum up total */
+	for (i = 0; i < tal_count(available) && i < max_utxos; i++) {
+		struct utxo *u = tal_steal(utxos, available[i]);
+
+		if (!wallet_update_output_status(
+			w, &u->txid, u->outnum,
+			output_state_available, output_state_reserved))
+			fatal("Unable to reserve output");
+		if (!amount_sat_add(sat, *sat, u->amount))
+			fatal("Overflow in sum of available satoshis %zu/%zu %s + %s",
+			      i, tal_count(utxos),
+			      type_to_string(tmpctx, struct amount_sat,
+					     sat),
+			      type_to_string(tmpctx, struct amount_sat,
+					     &u->amount));
+	}
+	tal_free(available);
+
+	return utxos;
+}
+
+u8 *derive_redeemscript(struct wallet *w, u32 keyindex)
+{
+	struct ext_key ext;
+
+	if (bip32_key_from_parent(w->bip32_base, keyindex,
+				  BIP32_FLAG_KEY_PUBLIC, &ext)
+	    != WALLY_OK) {
+		abort();
+	}
+	return scriptpubkey_p2wpkh_derkey(w, ext.pub_key);
 }
 
 bool wallet_can_spend(struct wallet *w, const u8 *script,

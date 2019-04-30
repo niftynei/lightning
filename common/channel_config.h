@@ -73,6 +73,9 @@ struct channel_config {
 	 * similarly, `max_accepted_htlcs` limits the number of outstanding
 	 * HTLCs the other node can offer. */
 	u16 max_accepted_htlcs;
+
+	/* option_upfront_shutdown_script */
+	u8 *shutdown_scriptpubkey;
 };
 
 void towire_channel_config(u8 **pptr, const struct channel_config *config);
