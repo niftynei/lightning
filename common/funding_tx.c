@@ -219,7 +219,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 	funding_tx_fee = amount_tx_fee(feerate_kw_funding, weight);
 
 	if (!amount_sat_sub(&opener_change, opener_total_sat, opener_funding))
-		return NULL; // TODO: error handling. print a warning?
+		return NULL;
 
 	if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
 		/* Check that there's a change output */
@@ -250,7 +250,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 	output_val = calculate_output_value(opener_outputs);
 	if (!amount_sat_sub(&opener_funding, opener_total_sat, funding_tx_fee) ||
 		!amount_sat_sub(&opener_funding, opener_funding, output_val))
-		return NULL; // TODO: error message?!
+		return NULL;
 
 	opener_change = AMOUNT_SAT(0);
 
