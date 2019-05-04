@@ -166,29 +166,15 @@ static void negotiation_failed(struct state *state, bool am_funder,
 	negotiation_aborted(state, am_funder, errmsg);
 }
 
-/*~ This is the key function that checks that their configuration is reasonable:
- * it applied for both the case where they're trying to open a channel, and when
- * they've accepted our open. */
-static bool check_config_bounds(struct state *state,
-				const struct channel_config *remoteconf,
-				bool am_funder)
+/* Check that the configs are ok; these checks rely on the reserves
+ * being exchanged.
+ */
+static bool check_config_bounds_reserves_required(struct state *state,
+						  const struct channel_config *remoteconf,
+						  bool am_funder)
 {
 	struct amount_sat capacity;
 	struct amount_sat reserve;
-
-	/* BOLT #2:
-	 *
-	 * The receiving node MUST fail the channel if:
-	 *...
-	 *  - `to_self_delay` is unreasonably large.
-	 */
-	if (remoteconf->to_self_delay > state->max_to_self_delay) {
-		negotiation_failed(state, am_funder,
-				   "to_self_delay %u larger than %u",
-				   remoteconf->to_self_delay,
-				   state->max_to_self_delay);
-		return false;
-	}
 
 	/* BOLT #2:
 	 *
@@ -274,6 +260,46 @@ static bool check_config_bounds(struct state *state,
 		return false;
 	}
 
+	/* BOLT #2:
+	 *
+	 * The receiving node MUST fail the channel if:
+	 *...
+	 *  - `dust_limit_satoshis` is greater than `channel_reserve_satoshis`.
+	 */
+	if (amount_sat_greater(remoteconf->dust_limit,
+			       remoteconf->channel_reserve)) {
+		negotiation_failed(state, am_funder,
+				   "dust_limit_satoshis %s"
+				   " too large for channel_reserve_satoshis %s",
+				   type_to_string(tmpctx, struct amount_sat,
+						  &remoteconf->dust_limit),
+				   type_to_string(tmpctx, struct amount_sat,
+						  &remoteconf->channel_reserve));
+		return false;
+	}
+
+	return true;
+}
+
+static bool check_config_bounds_no_reserve(struct state *state,
+					   const struct channel_config *remoteconf,
+					   bool am_funder)
+{
+	/* BOLT #2:
+	 *
+	 * The receiving node MUST fail the channel if:
+	 *...
+	 *  - `to_self_delay` is unreasonably large.
+	 */
+	if (remoteconf->to_self_delay > state->max_to_self_delay) {
+		negotiation_failed(state, am_funder,
+				   "to_self_delay %u larger than %u",
+				   remoteconf->to_self_delay,
+				   state->max_to_self_delay);
+		return false;
+	}
+
+
 	/* We don't worry about how many HTLCs they accept, as long as > 0! */
 	if (remoteconf->max_accepted_htlcs == 0) {
 		negotiation_failed(state, am_funder,
@@ -295,25 +321,19 @@ static bool check_config_bounds(struct state *state,
 		return false;
 	}
 
-	/* BOLT #2:
-	 *
-	 * The receiving node MUST fail the channel if:
-	 *...
-	 *  - `dust_limit_satoshis` is greater than `channel_reserve_satoshis`.
-	 */
-	if (amount_sat_greater(remoteconf->dust_limit,
-			       remoteconf->channel_reserve)) {
-		negotiation_failed(state, am_funder,
-				   "dust_limit_satoshis %s"
-				   " too large for channel_reserve_satoshis %s",
-				   type_to_string(tmpctx, struct amount_sat,
-						  &remoteconf->dust_limit),
-				   type_to_string(tmpctx, struct amount_sat,
-						  &remoteconf->channel_reserve));
-		return false;
-	}
 
 	return true;
+}
+
+/*~ This is the key function that checks that their configuration is reasonable:
+ * it applied for both the case where they're trying to open a channel, and when
+ * they've accepted our open. */
+static bool check_config_bounds(struct state *state,
+				const struct channel_config *remoteconf,
+				bool am_funder)
+{
+	return check_config_bounds_no_reserve(state, remoteconf, am_funder)
+		&& check_config_bounds_reserves_required(state, remoteconf, am_funder);
 }
 
 /* We always set channel_reserve_satoshis to 1%, rounded up. */
@@ -1548,20 +1568,6 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 }
 
 #if EXPERIMENTAL_FEATURES
-static struct utxo **select_available_input_coins(struct tal_t *ctx, struct wallet w, 
-						  u32 max_utxo_allowed, 
-				        	  struct amount_sat *satoshi_amt)
-{
-	const struct utxo **utxos;
-
-	utxos = wallet_select_max(ctx, w, target_satoshi, 
-				 max_utxo_allowed, satoshi_amt);
-	if (!tal_count(utxos))
-		return tal_free(utxos);
-
-	return utxos;
-}
-
 static struct input_info **utxos_to_inputs(struct tal_t *ctx, struct wallet *w,
 					   struct utxo **utxos TAKES)
 {
@@ -1587,7 +1593,6 @@ static struct input_info **utxos_to_inputs(struct tal_t *ctx, struct wallet *w,
 		 *	will be empty. 
 		 */
 		if (utxos[i]->is_p2sh)
-			// todo: where does wallet come from?
 			input->script = derive_redeemscript(w, utxos[i]->keyindex);
 
 		tal_array_expand(&inputs, input);
@@ -1598,7 +1603,132 @@ static struct input_info **utxos_to_inputs(struct tal_t *ctx, struct wallet *w,
 	return inputs;
 }
 
-static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
+static const output_info **build_outputs(struct tal_t *ctx,
+					 const struct ext_key *bip32_base,
+					 u32 change_keyindex,
+					 struct amount_sat change)
+{
+	struct output_info *output;
+	const struct output_info **outputs = tal_arr(ctx, struct output_info*, 0);
+
+	struct pubkey *changekey;
+	
+	changekey = tal(tmpctx, struct pubkey);
+	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
+		status_failed(STATUS_FAIL_MASTER_IO,
+			      "Bad change key %u", change_keyindex);
+	
+	output = tal(outputs, struct output_info); 
+	output->satoshis = change;
+	output->script = scriptpubkey_p2wpkh(output, changekey);
+	tal_array_expand(&outputs, output);
+
+	return outputs;
+}
+
+static bool check_remote_inputs(struct input_info **remote_inputs,
+				struct amount_sat *input_funding)
+{
+	size_t i = 0;
+	for (i = 0; i < tal_count(remote_inputs); i+=) {
+		if (!amount_add_sat(input_funding, *input_funding, remote_inputs[i]->satoshis))
+			fatal("Overflow in remote input amount %s + %s",
+			      type_to_string(tmpctx, struct amount_sat,
+					     remote_inputs[i]->satoshis),
+			      type_to_string(tmpctx, struct amount_sat,
+					     input_funding));
+		/** TODO: add BOLT reference when merged
+		 * - MUST ensure each `input_info` refers to a non-malleable (segwit) UTXO.
+		 */
+		/* P2SH wrapped inputs send the redeemscript, which we can check */
+		if (remote_inputs[i]->script)
+			if (!is_p2wpkh(remote_inputs[i]->script, NULL) 
+					&& !is_p2wsh(remote_inputs[i]->script, NULL))
+				return false;
+		if (!is_p2wpkh(remote_inputs[i]->prevtx_scriptpubkey, NULL) 
+				&& !is_p2wsh(remote_inputs[i]->prevtx_scriptpubkey, NULL))
+			return false;
+	}
+	return true;
+}
+
+static bool check_remote_input_outputs(struct tal_t *ctx,
+				       struct state *state,
+				       struct input_info **remote_inputs,
+				       struct output_info **remote_outputs
+				       u8 **change_address)
+{
+	size_t i = 0;
+	struct amount_sat funding, change;
+
+	/** TODO: add BOLT reference when merged
+	* - if is the `opener`:
+	*   - MUST NOT send zero inputs (`num_inputs` cannot be zero).
+	*/
+	if (!tal_count(remote_inputs))
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Opener sent no funding inputs");
+		
+	/** 
+	 * If they sent the wrong number of contrib_count then we might
+	 * have a wrong input count. Check that here.
+	 */
+	if (tal_count(remote_inputs) + tal_count(remote_outputs) < contrib_count)
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Sent incorrect contrib_count of %ld. Received %ld inputs, %ld outputs",
+			    contrib_count, tal_count(remote_inputs), tal_count(remote_outputs));
+
+	if (!check_remote_inputs(remote_inputs, &funding))
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Peer sent malleable (non-Segwit) input.");
+
+	change = AMOUNT_SAT(0);
+	for (i = 0; i < tal_count(remote_outputs); i++) {
+		if (amount_sat_eq(AMOUNT_SAT(0), remote_outputs[i]->satoshis)) {
+			/* Do we care if they send two change addresses(?) */
+			&change_address = tal_dup_array(ctx, u8, remote_outputs[i]->script,
+							tal_bytelen(remote_outputs[i]->script), 0);
+		}
+		if (!amount_sat_add(&change, change, remote_outputs[i]->satoshis))
+			fatal("Overflow in remote change satoshis %s + %s",
+			      type_to_string(tmpctx, struct amount_sat,
+					     change),
+			      type_to_string(tmpctx, struct amount_sat,
+					     remote_outputs[i]->satoshis));
+
+		/* TODO: add BOLT reference when merged
+		 * - MUST ensure the `output_info`.`script` is a standard script
+		 */
+		if (!is_known_scripttype(remote_outputs[i]->script))
+			peer_failed(&state->cs,
+				    &state->channel_id,
+				    "Peer sent non-standard output script.");
+			
+	}
+
+	/** TODO: add BOLT reference when merged
+	* The receiving node:
+	* - if the total `input_info`.`satoshis` is less than the total `output_info`.`satoshis`
+	*   - MUST fail the channel.
+	*/
+	if (amount_sat_greater(change, funding))
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Total remote input satoshi less than output satoshis. change:%s inputs:%s",
+			    type_to_string(tmpctx, struct amount_sat,
+					   change),
+			    type_to_string(tmpctx, struct amount_sat,
+					   funding));
+
+
+	return true;
+}
+
+static u8 *fundee_channel2(struct *state, 
+			   const u8 *open_channel2_msg)
 {
 	struct channel_id id_in;
 	struct basepoints theirs;
@@ -1609,9 +1739,14 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
 	struct opening_tlv *opening_tlv;
 	struct input_info **remote_inputs, **our_inputs;
 	struct output_info **remote_outputs, **our_outputs;
-	struct amount_sat max_avail_sat, our_funding;
+	struct amount_sat max_avail_sat, our_funding, our_change;
+	secp256k1_ecdsa_signature *htlc_sigs;
 	u32 max_allowed_inputs;
+	u8 *their_change_address;
 	struct utxos **available_utxos, input_utxos;
+
+	// FIXME: i think i need to move this out into master daemon 
+	struct wallet *w;
 
 	u8 *msg;
 	const u8 *wscript;
@@ -1659,6 +1794,11 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
 	if (!check_feerate(state, state->feerate_per_kw_funding))
 		return NULL;
 
+	/* Since we don't know the reserves until the funding_compose is
+	 * received, we do preliminary checks that don't require that here. */
+	if (!check_config_bounds_no_reserve(state, &state->remoteconf, false))
+		return NULL;
+
 	/**
 	 * FIXME: Fill in with bolt info when merged
   	 *- if is the `accepter`:
@@ -1668,10 +1808,11 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
   	 *    exceeds the `contrib_count` limit.
   	 *  - MAY send zero inputs and/or outputs.
 	 */
-	/* max allowed is remote's sum(inputs + outputs) minus one change output */
+	/* max allowed is remote's contrib_count minus one change output */
 	max_allowed_inputs = contrib_count - 1;
 
-	available_utxos = select_available_input_coins(ctx, max_allowed_inputs, &max_avail_sat);
+	/* Calculate the max we could contribute to this channel */
+	wallet_compute_max(ctx, w, max_allowed_inputs, &max_avail_sat);
 
 	// FIXME: add a hook for deciding how much to fund a channel with.
 	// - send max_avail_sat, node_id, their funding amount.
@@ -1683,14 +1824,17 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
 		our_funding = max_avail_sat;
 
 	/* obfuscate our funding availability, a wee bit */
+	// TODO: remove this after hook is implemented
 	if (pseudorand(7) % 7)
-		our_funding.satoshis = our_funding.satoshis * psuedorand(100) / 100; /* Raw: value set */
+		our_funding.satoshis = our_funding.satoshis * pseudorand(100) / 100; /* Raw: value set */
 
-	/* Unreserve and then select our UTXO set */
-	*/ START HERE !!
+	utxos = wallet_select_coins(ctx, w, our_funding, 0, 0, UINT32_MAX,
+				    NO_PAY, AMOUNT_SAT(0), &our_change);
 
-	/* If they've sent an option_upfront_shutdown_script, we should
-	 * save it */
+	if (!utxos)
+		our_funding = AMOUNT_SAT(0);
+
+	/* If they've sent an option_upfront_shutdown_script, save it */
 	if (opening_tlv && opening_tlv->option_upfront_shutdown_script)
 		&state->remoteconf.shutdown_scriptpubkey = 
 			tal_steal(state, 
@@ -1733,19 +1877,12 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
 
 	check_channel_id(&id_in, &state->channel_id);
 
-	check_inputs(remote_inputs);
+	if (!check_remote_input_outputs(ctx, state, 
+					remote_inputs, remote_outputs,
+					&their_change_address))
+		return NULL;
 
-	// FIXME: what is there to check wrt output validity?
-	check_outputs(remote_outputs);
-
-
-	// todo: winnow inputs to amount selected by hook callout
-	// make sure that you un-reserve the inputs!??
-	our_inputs = utxos_to_inputs(ctx, take(utxos));
-				
-	// FIXME: for now we're putting the max amount we have available
-	// into a channel. this isn't a good default behaviour
-	if (!amount_sat_add(&state->funding, state->funding, max_avail_sat))
+	if (!amount_sat_add(&state->funding, state->funding, our_funding))
 		fatal("Overflow in total channel funding satoshis %s + %s",
 		      type_to_string(tmpctx, struct amount_sat,
 				     state->funding),
@@ -1758,11 +1895,27 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
 	if (!check_reserve(state))
 		return NULL;
 
-	/* These checks are the same whether we're funder or fundee... */
-	if (!check_config_bounds(state, &state->remoteconf, false))
+	/* Now we can finish up the rest of the config checks */
+	if (!check_config_bounds_reserves_required(state, &state->remoteconf, false))
 		return NULL;
 
-	msg = towire_funding_compose(ctx, state->channel_id, *our_inputs, our_outputs);
+	our_inputs = utxos_to_inputs(ctx, take(utxos));
+
+	// todo: get change_keyindex and bip32 base from master
+	our_outputs = build_outputs(ctx, bip32_base, 
+				    change_keyindex, our_change);
+
+	/* Build the funding transaction, so we can confirm their sigs and sign with ours*/
+	funding_tx = dual_funding_funding_tx(ctx,
+				   	     state->feerate_per_kw_funding,
+					     state->funding,
+					     remote_inputs, our_inputs,
+					     remote_outputs, our_outputs,
+					     &state->our_funding_pubkey,
+					     &their_funding_pubkey);
+					     
+
+	msg = towire_funding_compose(ctx, state->channel_id, our_inputs, our_outputs);
 
 	sync_crypto_write(&state->cs, PEER_FD, take(msg));
 
@@ -1774,7 +1927,24 @@ static u8 *fundee_channel2(struct *state, const u8 *open_channel2_msg)
 	if (!msg)
 		return NULL;
 
-	// build the funding transaction (and verify that the commitment txns sent are valid)
+	their_sig.sighash_type = SIGHASH_ALL;
+	if (!fromwire_commitment_signed(tmpctx, msg,
+					&id_in, &their_sig.s, &htlc_sigs))
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Bad commitment_signed %s", tal_hex(msg, msg));
+
+	peer_billboard(false,
+		       "Incoming channel: commitment_signed received, composing funding tx");
+
+	if (tal_count(htlc_sigs))
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Peer sent HTLCs with initial commitment signed msg");
+
+
+	check_channel_id(&id_in, &state->channel_id);
+
 	
 	// send commitment_signed
 
