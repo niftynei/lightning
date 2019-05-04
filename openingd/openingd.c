@@ -1655,11 +1655,11 @@ static bool check_remote_inputs(struct input_info **remote_inputs,
 static bool check_remote_input_outputs(struct tal_t *ctx,
 				       struct state *state,
 				       struct input_info **remote_inputs,
-				       struct output_info **remote_outputs
-				       u8 **change_address)
+				       struct output_info **remote_outputs)
 {
 	size_t i = 0;
 	struct amount_sat funding, change;
+	bool has_change_address;
 
 	/** TODO: add BOLT reference when merged
 	* - if is the `opener`:
@@ -1688,9 +1688,12 @@ static bool check_remote_input_outputs(struct tal_t *ctx,
 	change = AMOUNT_SAT(0);
 	for (i = 0; i < tal_count(remote_outputs); i++) {
 		if (amount_sat_eq(AMOUNT_SAT(0), remote_outputs[i]->satoshis)) {
-			/* Do we care if they send two change addresses(?) */
-			&change_address = tal_dup_array(ctx, u8, remote_outputs[i]->script,
-							tal_bytelen(remote_outputs[i]->script), 0);
+			if (has_change_address)
+				peer_failed(&state->cs,
+					    &state->channel_id,
+					    "Peer sent more than one change outputs.");
+
+			has_change_address = true;
 		}
 		if (!amount_sat_add(&change, change, remote_outputs[i]->satoshis))
 			fatal("Overflow in remote change satoshis %s + %s",
@@ -1739,10 +1742,10 @@ static u8 *fundee_channel2(struct *state,
 	struct opening_tlv *opening_tlv;
 	struct input_info **remote_inputs, **our_inputs;
 	struct output_info **remote_outputs, **our_outputs;
-	struct amount_sat max_avail_sat, our_funding, our_change;
+	struct amount_sat max_avail_sat, our_funding,
+			  our_change, opener_funding;
 	secp256k1_ecdsa_signature *htlc_sigs;
 	u32 max_allowed_inputs;
-	u8 *their_change_address;
 	struct utxos **available_utxos, input_utxos;
 
 	// FIXME: i think i need to move this out into master daemon 
@@ -1811,6 +1814,9 @@ static u8 *fundee_channel2(struct *state,
 	/* max allowed is remote's contrib_count minus one change output */
 	max_allowed_inputs = contrib_count - 1;
 
+	/* Cache the opener's funding amount for later */
+	opener_funding = state->funding;
+
 	/* Calculate the max we could contribute to this channel */
 	wallet_compute_max(ctx, w, max_allowed_inputs, &max_avail_sat);
 
@@ -1878,11 +1884,10 @@ static u8 *fundee_channel2(struct *state,
 	check_channel_id(&id_in, &state->channel_id);
 
 	if (!check_remote_input_outputs(ctx, state, 
-					remote_inputs, remote_outputs,
-					&their_change_address))
+					remote_inputs, remote_outputs);
 		return NULL;
 
-	if (!amount_sat_add(&state->funding, state->funding, our_funding))
+	if (!amount_sat_add(&state->funding, opener_funding, our_funding))
 		fatal("Overflow in total channel funding satoshis %s + %s",
 		      type_to_string(tmpctx, struct amount_sat,
 				     state->funding),
@@ -1908,12 +1913,16 @@ static u8 *fundee_channel2(struct *state,
 	/* Build the funding transaction, so we can confirm their sigs and sign with ours*/
 	funding_tx = dual_funding_funding_tx(ctx,
 				   	     state->feerate_per_kw_funding,
-					     state->funding,
+					     opener_funding, our_funding,
 					     remote_inputs, our_inputs,
 					     remote_outputs, our_outputs,
 					     &state->our_funding_pubkey,
 					     &their_funding_pubkey);
 					     
+	if (!funding_tx)
+		peer_failed(&state->cs,
+			    &state->channel_id,
+			    "Opener unable to afford funding transaction");
 
 	msg = towire_funding_compose(ctx, state->channel_id, our_inputs, our_outputs);
 
