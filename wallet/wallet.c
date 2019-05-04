@@ -476,36 +476,26 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 	return utxo;
 }
 
-const struct **utxo wallet_select_max(const tal_t ctx, struct wallet *w,
+const void wallet_compute_max(const tal_t ctx, struct wallet *w,
 				      u32 max_utxos, struct amount_sat *sat)
 {
 	size_t i = 0;
 	struct utxo **available;
-	const struct utxo **utxos = tal_arr(ctx, const struct utxo *, 0);
-	tal_add_destructor2(utxos, destroy_utxos, w);
 
 	available = wallet_get_ordered_confirmed_utxos(ctx, w, 
 						output_state_available);
 
 	/* Mark them all as reserved and sum up total */
 	for (i = 0; i < tal_count(available) && i < max_utxos; i++) {
-		struct utxo *u = tal_steal(utxos, available[i]);
-
-		if (!wallet_update_output_status(
-			w, &u->txid, u->outnum,
-			output_state_available, output_state_reserved))
-			fatal("Unable to reserve output");
-		if (!amount_sat_add(sat, *sat, u->amount))
+		if (!amount_sat_add(sat, *sat, available[i]->amount))
 			fatal("Overflow in sum of available satoshis %zu/%zu %s + %s",
-			      i, tal_count(utxos),
+			      i, tal_count(available),
 			      type_to_string(tmpctx, struct amount_sat,
 					     sat),
 			      type_to_string(tmpctx, struct amount_sat,
-					     &u->amount));
+					     &available[i]->amount));
 	}
 	tal_free(available);
-
-	return utxos;
 }
 
 u8 *derive_redeemscript(struct wallet *w, u32 keyindex)
