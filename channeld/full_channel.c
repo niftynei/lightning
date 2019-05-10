@@ -37,7 +37,8 @@ struct channel *new_full_channel(const tal_t *ctx,
 				 const struct basepoints *remote_basepoints,
 				 const struct pubkey *local_funding_pubkey,
 				 const struct pubkey *remote_funding_pubkey,
-				 enum side funder)
+				 bool contributed_funds,
+				 enum side opener)
 {
 	struct channel *channel = new_initial_channel(ctx,
 						      chain_hash,
@@ -52,7 +53,8 @@ struct channel *new_full_channel(const tal_t *ctx,
 						      remote_basepoints,
 						      local_funding_pubkey,
 						      remote_funding_pubkey,
-						      funder);
+						      contributed_funds,
+						      opener);
 
 	if (channel) {
 		/* Feerates can be different. */

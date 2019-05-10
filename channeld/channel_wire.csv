@@ -39,6 +39,7 @@ msgdata,channel_init,next_index_local,u64,
 msgdata,channel_init,next_index_remote,u64,
 msgdata,channel_init,revocations_received,u64,
 msgdata,channel_init,next_htlc_id,u64,
+msgdata,channel_init,contributed_funds,bool,
 msgdata,channel_init,num_htlcs,u16,
 msgdata,channel_init,htlcs,added_htlc,num_htlcs
 msgdata,channel_init,htlc_states,enum htlc_state,num_htlcs
