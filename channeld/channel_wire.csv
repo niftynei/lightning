@@ -22,7 +22,8 @@ channel_init,,remote_fundingkey,struct pubkey
 channel_init,,remote_basepoints,struct basepoints
 channel_init,,remote_per_commit,struct pubkey
 channel_init,,old_remote_per_commit,struct pubkey
-channel_init,,funder,enum side
+channel_init,,opener,enum side
+channel_init,,contributed_funds,bool
 channel_init,,fee_base,u32
 channel_init,,fee_proportional,u32
 channel_init,,local_msatoshi,struct amount_msat

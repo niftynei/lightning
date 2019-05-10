@@ -50,6 +50,30 @@ hsm_sign_funding,,inputs,num_inputs*struct utxo
 hsm_sign_funding_reply,104
 hsm_sign_funding_reply,,tx,struct bitcoin_tx
 
+# Return witness elements for a funding tx.
+# This is for channel establishment v2
+# FIXME: this must be gated behind experimental_features
+hsm_dual_funding_sigs,40
+hsm_dual_funding_sigs,,num_utxos,u16
+hsm_dual_funding_sigs,,our_utxos,num_utxos*struct utxo
+hsm_dual_funding_sigs,,feerate_kw_funding,u32
+hsm_dual_funding_sigs,,opener_funding,struct amount_sat
+hsm_dual_funding_sigs,,accepter_funding,struct amount_sat
+hsm_dual_funding_sigs,,num_opener_inputs,u16
+hsm_dual_funding_sigs,,opener_inputs,num_opener_inputs*struct input_info
+hsm_dual_funding_sigs,,num_accepter_inputs,u16
+hsm_dual_funding_sigs,,accepter_inputs,num_accepter_inputs*struct input_info
+hsm_dual_funding_sigs,,num_opener_outputs,u16
+hsm_dual_funding_sigs,,opener_outputs,num_opener_outputs*struct output_info
+hsm_dual_funding_sigs,,num_accepter_outputs,u16
+hsm_dual_funding_sigs,,accepter_outputs,num_accepter_outputs*struct output_info
+hsm_dual_funding_sigs,,our_pubkey,struct pubkey
+hsm_dual_funding_sigs,,their_pubkey,struct pubkey
+
+hsm_dual_funding_sigs_reply,42
+hsm_dual_funding_sigs_reply,,num_witnesses,u16
+hsm_dual_funding_sigs_reply,,witness_stack,num_witnesses*struct witness_stack
+
 # Master asks the HSM to sign a node_announcement
 hsm_node_announcement_sig_req,6
 hsm_node_announcement_sig_req,,annlen,u16

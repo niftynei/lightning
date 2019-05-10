@@ -67,7 +67,6 @@ struct uncommitted_channel {
 	struct channel_config our_config;
 };
 
-
 struct funding_channel {
 	struct command *cmd; /* Which initially owns us until openingd request */
 
@@ -577,6 +576,54 @@ cleanup:
 	tal_free(fc->uc);
 }
 
+#ifdef EXPERIMENTAL_FEATURES
+static void accepter_broadcast_failed_or_succeeded(struct channel *channel,
+						   int exitstatus, const char *msg)
+{
+	struct funding_channel *fc = channel->peer->uncommitted_channel->fc;
+	char *str;
+
+	if (exitstatus == 0) {
+		str = tal_fmt(NULL, "Successfully broadcast funding tx %s. Waiting for lockin",
+			      type_to_string(tmpctx, struct bitcoin_txid, channel->funding_txid));
+		opening_channel_set_billboard(channel->peer->uncommitted_channel, str);
+	} else {
+		str = tal_fmt(NULL, "ERR: Unable to broadcast funding tx %s.",
+			      type_to_string(tmpctx, struct bitcoin_txid, channel->funding_txid));
+		opening_channel_set_billboard(channel->peer->uncommitted_channel, str);
+	}
+	tal_free(str);
+
+	/* Frees fc too */
+	tal_free(fc->uc);
+}
+
+static void opening_fundee2_finished(struct subd *openingd,
+				     const u8 *reply,
+				     const int *fds,
+				     struct uncommitted_channel *uc)
+{
+	assert(tal_count(fds) == 2);
+
+	/* Send it out and watch for confirms. */
+	broadcast_tx(ld->topology, channel, fundingtx, accepter_broadcast_failed_or_succeeded);
+	channel_watch_funding(ld, channel);
+
+	/* Mark consumed outputs as spent */
+	wallet_confirm_utxos(ld->wallet, fc->wtx.utxos);
+
+	/* Start normal channel daemon. */
+	peer_start_channeld(channel, &cs, fds[0], fds[1], NULL, false);
+
+	subd_release_channel(openingd, fc->uc);
+	fc->uc->openingd = NULL;
+
+	return;
+
+// TODO: failure cases.
+}
+#endif /* EXPERIMENTAL_FEATURES */
+
 static void opening_fundee_finished(struct subd *openingd,
 				    const u8 *reply,
 				    const int *fds,
@@ -1023,6 +1070,13 @@ static unsigned int openingd_msg(struct subd *openingd,
 		opening_got_offer(openingd, msg, uc);
 		return 0;
 
+#ifdef EXPERIMENTAL_FEATURES
+	case WIRE_OPENING_FUNDEE2:
+		if (tal_count(fds) != 2)
+		    return 2;
+		opening_fundee2_finished(openingd, msg, fds, uc);
+		return 0;
+#endif /* EXPERIMENTAL_FEATURES */
 	/* We send these! */
 	case WIRE_OPENING_INIT:
 	case WIRE_OPENING_FUNDER:

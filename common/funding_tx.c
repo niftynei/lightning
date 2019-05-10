@@ -190,8 +190,10 @@ void add_outputs(const struct bitcoin_tx *tx, const struct output_info **outputs
 }
 
 struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
+				           u16 *outnum,
 					   u32 feerate_kw_funding,
-				           struct amount_sat opener_funding,
+					   struct amount_sat *total_funding,
+				           struct amount_sat *opener_funding,
 					   struct amount_sat accepter_funding,
 				           const struct input_info **opener_inputs,
 				           const struct input_info **accepter_inputs,
@@ -203,11 +205,11 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 	size_t weight;	
 	struct amount_sat funding_tx_fee, our_fee, 
 			  opener_total_sat, accepter_total_sat,
-			  opener_change, total_funding,
-			  output_val;
+			  opener_change, output_val;
 	struct bitcoin_tx *tx;
 	struct output_info *change_output;
 
+	size_t i = 0;
 	u64 scriptlen;
 	u32 input_count, output_count;
 	u8 *wscript;
@@ -217,14 +219,14 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				  &opener_total_sat, &accepter_total_sat);
 	funding_tx_fee = amount_tx_fee(feerate_kw_funding, weight);
 
-	if (!amount_sat_sub(&opener_change, opener_total_sat, opener_funding))
+	if (!amount_sat_sub(&opener_change, opener_total_sat, *opener_funding))
 		return NULL;
 
 	if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
 		/* Check that there's a change output */
 		if (!find_change_output(opener_outputs)) {
 			/* This should definitely work because we just subtracted it out above */
-			assert(amount_sat_add(&opener_funding, opener_funding, opener_change));
+			assert(amount_sat_add(opener_funding, *opener_funding, opener_change));
 			opener_change = AMOUNT_SAT(0);
 		}
 		goto build_tx;
@@ -238,25 +240,26 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 		funding_tx_fee = amount_tx_fee(feerate_kw_funding, weight);
 		
 		/* Recalculate the opener_change */
-		assert(amount_sat_sub(&opener_change, opener_total_sat, opener_funding));
+		assert(amount_sat_sub(&opener_change, opener_total_sat, *opener_funding));
 		if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
-			assert(amount_sat_add(&opener_funding, opener_funding, opener_change));
+			assert(amount_sat_add(opener_funding, *opener_funding, opener_change));
 			opener_change = AMOUNT_SAT(0);
 			goto build_tx;
 		}
 }
 
 	output_val = calculate_output_value(opener_outputs);
-	if (!amount_sat_sub(&opener_funding, opener_total_sat, funding_tx_fee) ||
-		!amount_sat_sub(&opener_funding, opener_funding, output_val))
+	if (!amount_sat_sub(opener_funding, opener_total_sat, funding_tx_fee) ||
+		!amount_sat_sub(opener_funding, *opener_funding, output_val))
 		return NULL;
 
 	opener_change = AMOUNT_SAT(0);
 
 build_tx:
 	input_count = tal_count(opener_inputs) + tal_count(accepter_inputs);
+	/* opener + accepter outputs plus the funding output */
 	output_count = tal_count(opener_outputs) 
-		+ tal_count(accepter_outputs);
+		+ tal_count(accepter_outputs) + 1;
 
 	if (amount_sat_eq(AMOUNT_SAT(0), opener_change))
 		output_count -= 1;
@@ -273,28 +276,33 @@ build_tx:
 	SUPERVERBOSE("# funding witness script = %s\n",
 		     tal_hex(wscript, wscript));
 
-	if (!amount_sat_add(&funding, funding, opener_funding))
-		fatal("Overflow in funding + opener_funding %s + %s",
-		      type_to_string(tmpctx, struct amount_sat,
-				     funding),
-		      type_to_string(tmpctx, struct amount_sat,
-				     opener_funding));
-	
-	if (!amount_sat_add(&funding, funding, accepter_funding))
+	*total_funding = *opener_funding;
+	if (!amount_sat_add(total_funding, *total_funding, accepter_funding))
 		fatal("Overflow in funding + accepter_funding %s + %s",
 		      type_to_string(tmpctx, struct amount_sat,
 				     funding),
 		      type_to_string(tmpctx, struct amount_sat,
 				     accepter_funding));
 	
-	bitcoin_tx_add_output(tx, scriptpubkey_p2wsh(tx, wscript), &funding);
+	const void *map[output_count];
+	for (i = 0; i < output_count; i++) {
+		map[i] = int2ptr(i);
+	}
+	bitcoin_tx_add_output(tx, scriptpubkey_p2wsh(tx, wscript), total_funding);
 
 	/* Add the other outputs */
 	add_outputs(tx, opener_outputs, opener_change);
 	add_outputs(tx, accepter_outputs, NULL);
 
-	permute_outputs(tx, NULL, NULL);
+	permute_outputs(tx, NULL, map);
 	permute_inputs(tx, NULL);
+
+	for (i = 0; i < output_count; i++) {
+		if (map[i] == int2ptr(0)) {
+			*outnum = i;
+			break;
+		}
+	}
 
 	assert(bitcoin_tx_check(tx));
 	return tx;

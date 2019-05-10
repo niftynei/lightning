@@ -390,7 +390,8 @@ void peer_start_channeld(struct channel *channel,
 				      &channel->channel_info.theirbase,
 				      &channel->channel_info.remote_per_commit,
 				      &channel->channel_info.old_remote_per_commit,
-				      channel->funder,
+				      channel->opener,
+				      channel->contributed_funds,
 				      channel->feerate_base,
 				      channel->feerate_ppm,
 				      channel->our_msat,
@@ -430,7 +431,7 @@ void peer_start_channeld(struct channel *channel,
 	subd_send_msg(channel->owner, take(initmsg));
 
 	/* On restart, feerate might not be what we expect: adjust now. */
-	if (channel->funder == LOCAL)
+	if (channel->opener == LOCAL)
 		try_update_feerates(ld, channel);
 }
 
@@ -489,8 +490,8 @@ is_fundee_should_forget(struct lightningd *ld,
 	 * funding transaction after a reasonable timeout.
 	 */
 
-	/* Only applies if we are fundee. */
-	if (channel->funder == LOCAL)
+	/* Only applies if we put in funds. */
+	if (channel->contributed_funds)
 		return false;
 
 	/* Does not apply if we already saw the funding tx. */
