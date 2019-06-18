@@ -280,7 +280,7 @@ WARN_UNUSED_RESULT bool amount_msat_add_sat(struct amount_msat *val,
 					    struct amount_msat a,
 					    struct amount_sat b)
 {
-	struct amount_msat amount_msatb;
+	struct amount_msat msatb;
 
 	if (!amount_sat_to_msat(&msatb, b))
 		return false;

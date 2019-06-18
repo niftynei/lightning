@@ -6,8 +6,9 @@ hsmd-wrongdir:
 
 default: hsmd-all
 
-LIGHTNINGD_HSM_SRC := hsmd/hsmd.c	\
-	hsmd/gen_hsm_wire.c
+LIGHTNINGD_HSM_SRC := hsmd/hsmd.c	        \
+	hsmd/gen_hsm_wire.c                     \
+
 LIGHTNINGD_HSM_HEADERS := hsmd/gen_hsm_wire.h
 LIGHTNINGD_HSM_OBJS := $(LIGHTNINGD_HSM_SRC:.c=.o)
 

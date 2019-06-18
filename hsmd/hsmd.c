@@ -1352,33 +1352,34 @@ static void hsm_key_for_utxo(struct privkey *privkey, struct pubkey *pubkey,
 	}
 }
 
-static void sign_input(struct bitcoin_tx *tx, struct utxo *utxo,
+static void sign_input(struct bitcoin_tx *tx, const struct utxo *utxo,
 		       struct pubkey *inkey,
-		       struct bitcoin_signature *sig)
+		       struct bitcoin_signature *sig,
+		       size_t index)
 {
 	struct privkey inprivkey;
 	u8 *subscript, *wscript, *script;
 	/* Figure out keys to spend this. */
-	hsm_key_for_utxo(&inprivkey, &inkey, in);
+	hsm_key_for_utxo(&inprivkey, inkey, utxo);
 
 	/* It's either a p2wpkh or p2sh (we support that so people from
 	 * the last bitcoin era can put funds into the wallet) */
-	wscript = p2wpkh_scriptcode(tmpctx, &inkey);
-	if (in->is_p2sh) {
+	wscript = p2wpkh_scriptcode(tmpctx, inkey);
+	if (utxo->is_p2sh) {
 		/* For P2SH-wrapped Segwit, the (implied) redeemScript
 		 * is defined in BIP141 */
-		subscript = bitcoin_redeem_p2sh_p2wpkh(tmpctx, &inkey);
-		script = bitcoin_scriptsig_p2sh_p2wpkh(tx, &inkey);
-		bitcoin_tx_input_set_script(tx, i, script);
+		subscript = bitcoin_redeem_p2sh_p2wpkh(tmpctx, inkey);
+		script = bitcoin_scriptsig_p2sh_p2wpkh(tx, inkey);
+		bitcoin_tx_input_set_script(tx, index, script);
 	} else {
 		/* Pure segwit uses an empty inputScript; NULL has
 		 * tal_count() == 0, so it works great here. */
 		subscript = NULL;
-		bitcoin_tx_input_set_script(tx, i, NULL);
+		bitcoin_tx_input_set_script(tx, index, NULL);
 	}
 
 	/* This is the core crypto magic. */
-	sign_tx_input(tx, i, subscript, wscript, &inprivkey, &inkey,
+	sign_tx_input(tx, index, subscript, wscript, &inprivkey, inkey,
 		      SIGHASH_ALL, sig);
 }
 
@@ -1402,7 +1403,7 @@ static void sign_all_inputs(struct bitcoin_tx *tx, struct utxo **utxos)
 		const struct utxo *in = utxos[i];
 		struct bitcoin_signature sig;
 
-		sign_input(tx, in, &inkey, &sig);
+		sign_input(tx, in, &inkey, &sig, i);
 
 		/* The witness is [sig] [key] */
 		bitcoin_tx_input_set_witness(
@@ -1412,14 +1413,14 @@ static void sign_all_inputs(struct bitcoin_tx *tx, struct utxo **utxos)
 
 #ifdef EXPERIMENTAL_FEATURES
 static size_t find_input_index(struct wally_tx *wtx,
-			       struct bitcoin_txid *txid,
+			       const struct bitcoin_txid *txid,
 			       u32 outnum)
 {
 	size_t i = 0;
 	for (i = 0; i < wtx->num_inputs; i++) {
 		struct wally_tx_input input = wtx->inputs[i];
-		if (memcmp(input.txhash, &txid) == 0 &&
-				input->index == outnum)
+		if (memcmp(input.txhash, &txid, tal_bytelen(input.txhash)) == 0 &&
+				input.index == outnum)
 			return i;
 	}
 	return -1;
@@ -1435,9 +1436,12 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	u32 feerate_kw_funding;
 	struct pubkey local_pubkey, remote_pubkey;
 	struct amount_sat opener_funding, accepter_funding;
-	struct input_info **opener_inputs, **accepter_inputs;
-	struct output_info **opener_outputs, **accepter_inputs;
+	struct input_info **opener_inputs = tal(msg_in, struct input_info *);
+	struct input_info **accepter_inputs = tal(msg_in, struct input_info *);
+	struct output_info **opener_outputs = tal(msg_in, struct output_info *);
+	struct output_info **accepter_outputs = tal(msg_in, struct output_info *);
 	struct utxo **our_utxos;
+	struct amount_sat total_funding;
 	
 	if (!fromwire_hsm_dual_funding_sigs(tmpctx, 
 					    msg_in, 
@@ -1445,10 +1449,10 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 					    &feerate_kw_funding,
 					    &opener_funding,
 					    &accepter_funding,
-					    &opener_inputs,
-					    &accepter_inputs,
-					    &opener_outputs,
-					    &accepter_outputs,
+					    opener_inputs,
+					    accepter_inputs,
+					    opener_outputs,
+					    accepter_outputs,
 					    &local_pubkey,
 					    &remote_pubkey))
 
@@ -1458,39 +1462,39 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	tx = dual_funding_funding_tx(tmpctx,
 				     NULL,
 				     feerate_kw_funding,
-				     AMOUNT_SAT(0),
-				     opener_funding,
+				     &total_funding,
+				     &opener_funding,
 				     accepter_funding,
-				     opener_inputs,
-				     accepter_inputs,
-				     opener_outputs,
-				     accepter_outputs,
-				     local_fundingkey,
-				     remote_fundingkey);
+				     (const struct input_info **)opener_inputs,
+				     (const struct input_info **)accepter_inputs,
+				     (const struct output_info **)opener_outputs,
+				     (const struct output_info **)accepter_outputs,
+				     &local_pubkey,
+				     &remote_pubkey);
 	
 	witnesses = tal_arr(tmpctx, struct witness_stack *, tal_count(our_utxos));
 	for (i = 0; i < tal_count(our_utxos); i++) {
 		struct pubkey inkey;
 		const struct utxo *in = our_utxos[i];
-		const struct witness_stack *stack = witnesses[i];
+		struct witness_stack *stack = witnesses[i];
 		struct bitcoin_signature sig;
 		size_t input_index;	
 		u8 **utxo_witnesses;
 
-		input_index = find_input_index(tx, in->txid, in->outnum);
-		sign_input(tx, input_index, &inkey, &sig);
+		input_index = find_input_index(tx->wtx, &in->txid, in->outnum);
+		sign_input(tx, in, &inkey, &sig, input_index);
 
-		utxo_witnesses = bitcoin_witness_p2pkh(tmpctx, &sig, &inkey);
-		stack->witness_element = tal_arr(stack, struct witness_element *, 2);
-		stack->witness_element[0]->witness = 
+		utxo_witnesses = bitcoin_witness_p2wpkh(tmpctx, &sig, &inkey);
+		stack->witness_element = tal_arr(stack, struct witness_element, 2);
+		stack->witness_element[0].witness =
 			tal_dup_arr(stack, u8, utxo_witnesses[0],
 				    sizeof(utxo_witnesses[0]), 0);
-		stack->witness_element[1]->witness = 
+		stack->witness_element[1].witness =
 			tal_dup_arr(stack, u8, utxo_witnesses[1],
 				    sizeof(utxo_witnesses[1]), 1);
 	}
 
-	return req_reply(conn, c, take(towire_hsm_dual_funding_sigs_reply(NULL, witnesses)));
+	return req_reply(conn, c, take(towire_hsm_dual_funding_sigs_reply(NULL, *witnesses)));
 }
 
 #endif /* EXPERIMENTAL_FEATURES */
@@ -1871,6 +1875,9 @@ static struct io_plan *handle_client(struct io_conn *conn, struct client *c)
 	case WIRE_HSM_CUPDATE_SIG_REPLY:
 	case WIRE_HSM_CLIENT_HSMFD_REPLY:
 	case WIRE_HSM_SIGN_FUNDING_REPLY:
+#if EXPERIMENTAL_FEATURES
+	case WIRE_HSM_DUAL_FUNDING_SIGS_REPLY:
+#endif /* EXPERIMENTAL_FEATURES */
 	case WIRE_HSM_NODE_ANNOUNCEMENT_SIG_REPLY:
 	case WIRE_HSM_SIGN_WITHDRAWAL_REPLY:
 	case WIRE_HSM_SIGN_INVOICE_REPLY:
