@@ -61,10 +61,10 @@ wire/gen_onion_wire_csv: wire/extracted_onion_wire_csv
 endif
 
 wire/gen_peer_wire.h: wire/gen_peer_wire_csv $(WIRE_GEN)
-	$(WIRE_GEN) --bolt --header $@ wire_type < $< > $@
+	$(WIRE_GEN) --bolt --header --subtypes $@ wire_type < $< > $@
 
 wire/gen_peer_wire.c: wire/gen_peer_wire_csv $(WIRE_GEN)
-	$(WIRE_GEN) --bolt ${@:.c=.h} wire_type < $< > $@
+	$(WIRE_GEN) --bolt --subtypes ${@:.c=.h} wire_type < $< > $@
 
 wire/gen_onion_wire.h: wire/gen_onion_wire_csv $(WIRE_GEN)
 	$(WIRE_GEN) --bolt --header $@ onion_type < $< > $@

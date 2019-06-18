@@ -45,10 +45,25 @@ varlen_structs = [
     'per_peer_state',
 ]
 
+var_not_subtypes = [
+    'wireaddr',
+    'wireaddr_internal',
+    'short_channel_id_dir',
+    'route_hop',
+    'route_info',
+    'changed_htlc',
+    'added_htlc',
+    'fulfilled_htlc',
+]
 
 class FieldType(object):
+    subtype_structs = []
+
     def __init__(self, name):
         self.name = name
+        if name.startswith('struct'):
+            if name[7:] not in varlen_structs and name not in type2size.keys():
+                self.subtype_structs.append(name[7:])
 
     def is_var_int(self):
         return self.name == 'var_int'
@@ -77,7 +92,7 @@ class FieldType(object):
         for subtype in subtypes:
             if subtype.name == self.base():
                 return True
-        return False
+        return self.base() in self.subtype_structs and self.base() not in var_not_subtypes
 
     # Returns base size
     @staticmethod
