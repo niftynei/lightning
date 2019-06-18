@@ -58,7 +58,8 @@ msgdata,hsm_sign_funding_reply,tx,bitcoin_tx,
 
 # Return witness elements for a funding tx.
 # This is for channel establishment v2
-# FIXME: this must be gated behind experimental_features
+# FIXME: gate behind experimental_features
+#include <wire/gen_peer_wire.h>
 hsm_dual_funding_sigs,40
 hsm_dual_funding_sigs,,num_utxos,u16
 hsm_dual_funding_sigs,,our_utxos,num_utxos*struct utxo

@@ -5,6 +5,7 @@
 #include <ccan/short_types/short_types.h>
 #include <ccan/tal/tal.h>
 #include <common/amount.h>
+#include <wire/gen_peer_wire.h>
 
 struct bitcoin_tx;
 struct ext_key;
@@ -44,4 +45,19 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 			      struct amount_sat change,
 			      const struct pubkey *changekey,
 			      const struct ext_key *bip32_base);
+
+#ifdef EXPERIMENTAL_FEATURES
+struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
+				           u16 *outnum,
+					   u32 feerate_kw_funding,
+					   struct amount_sat *total_funding,
+				           struct amount_sat *opener_funding,
+					   struct amount_sat accepter_funding,
+				           const struct input_info **opener_inputs,
+				           const struct input_info **accepter_inputs,
+					   const struct output_info **opener_outputs,
+					   const struct output_info **accepter_outputs,
+				           const struct pubkey *local_fundingkey,
+				           const struct pubkey *remote_fundingkey);
+#endif /* EXPERIMENTAL_FEATURES */
 #endif /* LIGHTNING_COMMON_FUNDING_TX_H */

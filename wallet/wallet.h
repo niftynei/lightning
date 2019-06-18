@@ -379,6 +379,9 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 				      struct amount_sat *sat,
 				      struct amount_sat *fee_estimate);
 
+const void wallet_compute_max(const tal_t *ctx, struct wallet *w,
+			      u32 max_utxos,
+			      struct amount_sat *sat);
 /**
  * wallet_select_specific - Select utxos given an array of txids and an array of outputs index
  *

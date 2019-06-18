@@ -477,7 +477,7 @@ const struct utxo **wallet_select_all(const tal_t *ctx, struct wallet *w,
 }
 
 const void wallet_compute_max(const tal_t ctx, struct wallet *w,
-				      u32 max_utxos, struct amount_sat *sat)
+			      u32 max_utxos, struct amount_sat *sat)
 {
 	size_t i = 0;
 	struct utxo **available;
