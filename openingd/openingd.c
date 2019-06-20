@@ -80,6 +80,10 @@ struct state {
 	struct basepoints their_points;
 	struct pubkey their_funding_pubkey;
 
+	/* Information we need for dual-funding rounds */
+	u16 contrib_count;
+	struct bitcoin_blkid chain_hash;
+
 	/* hsmd gives us our first per-commitment point, and peer tells us
 	 * theirs */
 	struct pubkey first_per_commitment_point[NUM_SIDES];
@@ -1837,36 +1841,39 @@ static u8 *fundee_channel2(struct state *state,
 	 *    `payment_basepoint`, or `delayed_payment_basepoint` are not valid
 	 *     DER-encoded compressed secp256k1 pubkeys.
 	 */
-	if (!fromwire_open_channel2(tmpctx, open_channel2_msg, &chain_hash,
-				   &state->channel_id,
-				   &state->push_msat,
-				   &state->funding,
-				   &state->remoteconf.dust_limit,
-				   &state->remoteconf.max_htlc_value_in_flight,
-				   &state->remoteconf.channel_reserve,
-				   &state->remoteconf.htlc_minimum,
-				   &state->feerate_per_kw,
-				   &state->feerate_per_kw_funding,
-				   &state->remoteconf.to_self_delay,
-				   &state->remoteconf.max_accepted_htlcs,
-				   &their_funding_pubkey,
-				   &theirs.revocation,
-				   &theirs.payment,
-				   &theirs.delayed_payment,
-				   &theirs.htlc,
-				   &state->first_per_commitment_point[REMOTE],
-				   &channel_flags,
-				   opening_tlv))
+	if (!fromwire_open_channel2(tmpctx, msg,
+				    &state->chain_hash,
+				    &state->channel_id,
+				    &state->funding,
+				    &state->push_msat,
+				    &state->remoteconf.dust_limit,
+				    &state->remoteconf.max_htlc_value_in_flight,
+				    &state->remoteconf.htlc_minimum,
+				    &state->feerate_per_kw,
+				    &state->feerate_per_kw_funding,
+				    &state->contrib_count,
+				    &state->remoteconf.to_self_delay,
+				    &state->remoteconf.max_accepted_htlcs,
+				    &state->their_funding_pubkey,
+				    &state->their_points.revocation,
+				    &state->their_points.payment,
+				    &state->their_points.delayed_payment,
+				    &state->their_points.htlc,
+				    &state->first_per_commitment_point[REMOTE],
+				    &channel_flags,
+				    opening_tlv))
 		peer_failed(state->pps, NULL,
 			    "Bad open_channel2 %s",
 			    tal_hex(open_channel2_msg, open_channel2_msg));
 
-	if (!check_open_channel_state(state, &chain_hash))
+	if (!check_open_channel_state(state, &state->chain_hash))
 		return NULL;
 
+	/* Check the proposed commitment transaction feerate */
 	if (!check_feerate(state, state->feerate_per_kw))
 		return NULL;
 
+	/* Check the proposed funding transaction feerate */
 	if (!check_feerate(state, state->feerate_per_kw_funding))
 		return NULL;
 
@@ -1922,20 +1929,20 @@ static u8 *fundee_channel2(struct state *state,
 
 	/* OK, we accept! */
 	msg = towire_accept_channel2(state, &state->channel_id,
-				    state->localconf.dust_limit,
-				    state->localconf.max_htlc_value_in_flight,
-				    state->localconf.channel_reserve,
-				    state->localconf.htlc_minimum,
-				    state->minimum_depth,
-				    state->localconf.to_self_delay,
-				    state->localconf.max_accepted_htlcs,
-				    &state->our_funding_pubkey,
-				    &state->our_points.revocation,
-				    &state->our_points.payment,
-				    &state->our_points.delayed_payment,
-				    &state->our_points.htlc,
-				    &state->first_per_commitment_point[LOCAL],
-				    NULL);
+				     our_funding,
+				     state->localconf.dust_limit,
+				     state->localconf.max_htlc_value_in_flight,
+				     state->localconf.htlc_minimum,
+				     state->minimum_depth,
+				     state->localconf.to_self_delay,
+				     state->localconf.max_accepted_htlcs,
+				     &state->our_funding_pubkey,
+				     &state->our_points.revocation,
+				     &state->our_points.payment,
+				     &state->our_points.delayed_payment,
+				     &state->our_points.htlc,
+				     &state->first_per_commitment_point[LOCAL],
+				     NULL);
 
 	sync_crypto_write(state->pps, take(msg));
 
@@ -1950,7 +1957,8 @@ static u8 *fundee_channel2(struct state *state,
 	/* The next message should be "funding_compose" which tells us the funding
 	 * inputs and outputs they've selected. */
 	if (!fromwire_funding_compose(tmpctx, msg, &id_in, 
-				      remote_inputs, remote_outputs))
+				      &state->remoteconf.channel_reserve,
+				      &remote_inputs, &remote_outputs))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Parsing received funding_compose");
@@ -2043,6 +2051,7 @@ static u8 *fundee_channel2(struct state *state,
 			    "We could not create channel with given config");
 
 	msg = towire_funding_compose(state, &state->channel_id,
+				     state->localconf.channel_reserve,
 				     (const struct input_info *)our_inputs,
 				     (const struct output_info *)our_outputs);
 

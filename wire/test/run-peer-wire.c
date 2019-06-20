@@ -90,6 +90,7 @@ struct msg_funding_created {
 };
 struct msg_accept_channel {
 	struct channel_id temporary_channel_id;
+	struct amount_sat funding_amount;
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat;
 	struct amount_sat channel_reserve_satoshis;
@@ -202,6 +203,7 @@ struct msg_open_channel2 {
 	struct amount_msat htlc_minimum_msat;
 	u32 feerate_per_kw;
 	u32 feerate_per_kw_funding;
+	u16 contrib_count;
 	u16 to_self_delay;
 	u16 max_accepted_htlcs;
 	struct pubkey funding_pubkey;
@@ -215,6 +217,7 @@ struct msg_open_channel2 {
 };
 struct msg_accept_channel2 {
 	struct channel_id temporary_channel_id;
+	struct amount_sat funding_satoshis;
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat;
 	struct amount_sat channel_reserve_satoshis;
@@ -232,6 +235,7 @@ struct msg_accept_channel2 {
 };
 struct msg_funding_compose {
 	struct channel_id temporary_channel_id;
+	struct amount_sat channel_reserve_satoshis;
 	struct input_info *input_infos;
 	struct output_info *output_infos;
 };
@@ -384,14 +388,14 @@ static void *towire_struct_open_channel2(const tal_t *ctx,
 	return towire_open_channel2(ctx,
 				   &s->chain_hash,
 				   &s->temporary_channel_id,
-				   s->push_msat,
 				   s->funding_satoshis,
+				   s->push_msat,
 				   s->dust_limit_satoshis,
 				   s->max_htlc_value_in_flight_msat,
-				   s->channel_reserve_satoshis,
 				   s->htlc_minimum_msat,
 				   s->feerate_per_kw,
 				   s->feerate_per_kw_funding,
+				   s->contrib_count,
 				   s->to_self_delay,
 				   s->max_accepted_htlcs,
 				   &s->funding_pubkey,
@@ -411,14 +415,14 @@ static struct msg_open_channel2 *fromwire_struct_open_channel2(const tal_t *ctx,
 	if (fromwire_open_channel2(ctx, p,
 				  &s->chain_hash,
 				  &s->temporary_channel_id,
-				  &s->push_msat,
 				  &s->funding_satoshis,
+				  &s->push_msat,
 				  &s->dust_limit_satoshis,
 				  &s->max_htlc_value_in_flight_msat,
-				  &s->channel_reserve_satoshis,
 				  &s->htlc_minimum_msat,
 				  &s->feerate_per_kw,
 				  &s->feerate_per_kw_funding,
+				  &s->contrib_count,
 				  &s->to_self_delay,
 				  &s->max_accepted_htlcs,
 				  &s->funding_pubkey,
@@ -477,13 +481,13 @@ static struct msg_accept_channel *fromwire_struct_accept_channel(const tal_t *ct
 }
 
 static void *towire_struct_accept_channel2(const tal_t *ctx,
-						const struct msg_accept_channel2 *s)
+					   const struct msg_accept_channel2 *s)
 {
 	return towire_accept_channel2(ctx,
 				     &s->temporary_channel_id,
+				     s->funding_satoshis,
 				     s->dust_limit_satoshis,
 				     s->max_htlc_value_in_flight_msat,
-				     s->channel_reserve_satoshis,
 				     s->htlc_minimum_msat,
 				     s->minimum_depth,
 				     s->to_self_delay,
@@ -503,9 +507,9 @@ static struct msg_accept_channel2 *fromwire_struct_accept_channel2(const tal_t *
 
 	if (fromwire_accept_channel2(ctx, p,
 				    &s->temporary_channel_id,
+				    &s->funding_satoshis,
 				    &s->dust_limit_satoshis,
 				    &s->max_htlc_value_in_flight_msat,
-				    &s->channel_reserve_satoshis,
 				    &s->htlc_minimum_msat,
 				    &s->minimum_depth,
 				    &s->to_self_delay,
@@ -525,6 +529,7 @@ static void *towire_struct_funding_compose(const tal_t *ctx,
 {
 	return towire_funding_compose(ctx,
 		&s->temporary_channel_id,
+		s->channel_reserve_satoshis,
 		s->input_infos,
 		s->output_infos);
 }
@@ -534,6 +539,7 @@ static struct msg_funding_compose *fromwire_struct_funding_compose(const tal_t *
 
 	if (fromwire_funding_compose(ctx, p,
 				&s->temporary_channel_id,
+				&s->channel_reserve_satoshis,
 				&s->input_infos,
 				&s->output_infos))
 		return s;
