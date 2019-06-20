@@ -1209,14 +1209,14 @@ static bool check_feerate(struct state *state, u32 feerate_per_kw)
 	 */
 	if (feerate_per_kw < state->min_feerate) {
 		negotiation_failed(state, false,
-				   "feerate_per_kw %u below minimum %u",
+				   "feerate %u below minimum %u",
 				   feerate_per_kw, state->min_feerate);
 		return false;
 	}
 
 	if (feerate_per_kw > state->max_feerate) {
 		negotiation_failed(state, false,
-				   "feerate_per_kw %u above maximum %u",
+				   "feerate %u above maximum %u",
 				   feerate_per_kw, state->max_feerate);
 		return false;
 	}
