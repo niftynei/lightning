@@ -92,6 +92,16 @@ struct funding_channel {
 	struct command **cancels;
 };
 
+/* There's nothing permanent in an unconfirmed transaction */
+static void opening_channel_set_billboard(struct uncommitted_channel *uc,
+					  bool perm UNUSED,
+					  const char *happenings TAKES)
+{
+	uc->transient_billboard = tal_free(uc->transient_billboard);
+	if (happenings)
+		uc->transient_billboard = tal_strdup(uc, happenings);
+}
+
 static void uncommitted_channel_disconnect(struct uncommitted_channel *uc,
 					   const char *desc)
 {
@@ -775,16 +785,6 @@ static void opening_channel_errmsg(struct uncommitted_channel *uc,
 	tal_free(pps);
 	uncommitted_channel_disconnect(uc, desc);
 	tal_free(uc);
-}
-
-/* There's nothing permanent in an unconfirmed transaction */
-static void opening_channel_set_billboard(struct uncommitted_channel *uc,
-					  bool perm UNUSED,
-					  const char *happenings TAKES)
-{
-	uc->transient_billboard = tal_free(uc->transient_billboard);
-	if (happenings)
-		uc->transient_billboard = tal_strdup(uc, happenings);
 }
 
 static void destroy_uncommitted_channel(struct uncommitted_channel *uc)
