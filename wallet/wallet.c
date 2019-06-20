@@ -221,7 +221,7 @@ struct utxo **wallet_get_utxos(const tal_t *ctx, struct wallet *w, const enum ou
 }
 
 /* Select highest value, confirmed, UTXOs. Optionally limit number to return */
-struct utxo **wallet_get_ordered_confirmed_utxo(const tal_t *ctx, struct wallet *w, 
+static struct utxo **wallet_get_ordered_confirmed_utxos(const tal_t *ctx, struct wallet *w,
 					        const enum output_status state)
 {
 	struct utxo **results;
