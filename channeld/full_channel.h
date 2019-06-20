@@ -24,7 +24,7 @@
  * @remote_basepoints: remote basepoints.
  * @local_fundingkey: local funding key
  * @remote_fundingkey: remote funding key
- * @funder: which side initiated it.
+ * @opener: which side initiated it.
  *
  * Returns state, or NULL if malformed.
  */
@@ -42,7 +42,7 @@ struct channel *new_full_channel(const tal_t *ctx,
 				 const struct basepoints *remote_basepoints,
 				 const struct pubkey *local_funding_pubkey,
 				 const struct pubkey *remote_funding_pubkey,
-				 enum side funder);
+				 enum side opener);
 
 /**
  * channel_txs: Get the current commitment and htlc txs for the channel.
@@ -159,11 +159,11 @@ enum channel_remove_err channel_fulfill_htlc(struct channel *channel,
 u32 approx_max_feerate(const struct channel *channel);
 
 /**
- * can_funder_afford_feerate: could the funder pay the fee?
+ * can_opener_afford_feerate: could the opener pay the fee?
  * @channel: The channel state
  * @feerate: The feerate in satoshi per 1000 bytes.
  */
-bool can_funder_afford_feerate(const struct channel *channel, u32 feerate);
+bool can_opener_afford_feerate(const struct channel *channel, u32 feerate);
 
 /**
  * channel_update_feerate: Change fee rate on non-funder side.

@@ -621,7 +621,7 @@ static void json_add_channel(struct lightningd *ld,
 	// FIXME @conscott : Modify this when dual-funded channels
 	// are implemented
 	json_object_start(response, "funding_allocation_msat");
-	if (channel->funder == LOCAL) {
+	if (channel->opener == LOCAL) {
 		json_add_u64(response, node_id_to_hexstr(tmpctx, &p->id), 0);
 		json_add_u64(response, node_id_to_hexstr(tmpctx, &ld->id),
 			     channel->funding.satoshis * 1000); /* Raw: raw JSON field */
@@ -633,7 +633,7 @@ static void json_add_channel(struct lightningd *ld,
 	json_object_end(response);
 
 	json_object_start(response, "funding_msat");
-	if (channel->funder == LOCAL) {
+	if (channel->opener == LOCAL) {
 		json_add_sat_only(response,
 				  node_id_to_hexstr(tmpctx, &p->id),
 				  AMOUNT_SAT(0));
@@ -700,7 +700,7 @@ static void json_add_channel(struct lightningd *ld,
 	subtract_offered_htlcs(channel, &spendable);
 
 	/* If we're funder, subtract txfees we'll need to spend this */
-	if (channel->funder == LOCAL) {
+	if (channel->opener == LOCAL) {
 		if (!amount_msat_sub_sat(&spendable, spendable,
 					 commit_txfee(channel, spendable)))
 			spendable = AMOUNT_MSAT(0);

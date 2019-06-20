@@ -304,7 +304,7 @@ static void update_feerate(struct channel *channel, u32 feerate)
 
 	ret = channel_update_feerate(channel, feerate);
 	assert(ret);
-	if (channel->funder == LOCAL) {
+	if (channel->opener == LOCAL) {
 		ret = channel_sending_commit(channel, NULL);
 		assert(ret);
 		ret = channel_rcvd_revoke_and_ack(channel, NULL);
@@ -366,7 +366,7 @@ int main(void)
 	 * In the following:
 	 *  - *local* transactions are considered, which implies that all
 	 *    payments to *local* are delayed.
-	 *  - It's assumed that *local* is the funder.
+	 *  - It's assumed that *local* is the opener.
 	 *  - Private keys are displayed as 32 bytes plus a trailing 1
 	 *    (Bitcoin's convention for "compressed" private keys, i.e. keys for
 	 *    which the public key is compressed).
