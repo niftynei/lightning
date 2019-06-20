@@ -1165,7 +1165,7 @@ void wallet_channel_save(struct wallet *w, struct channel *chan)
 	else
 		sqlite3_bind_null(stmt, 2);
 	sqlite3_bind_int(stmt, 3, chan->state);
-	sqlite3_bind_int(stmt, 4, chan->funder);
+	sqlite3_bind_int(stmt, 4, chan->opener);
 	sqlite3_bind_int(stmt, 5, chan->channel_flags);
 	sqlite3_bind_int(stmt, 6, chan->minimum_depth);
 

@@ -1123,7 +1123,7 @@ static void send_commit(struct peer *peer)
 	}
 
 	/* If we wanted to update fees, do it now. */
-	if (peer->channel->funder == LOCAL) {
+	if (peer->channel->opener == LOCAL) {
 		u32 feerate, max = approx_max_feerate(peer->channel);
 
 		feerate = peer->desired_feerate;
@@ -1381,11 +1381,11 @@ static void handle_peer_commit_sig(struct peer *peer, const u8 *msg)
 	}
 
 	/* We were supposed to check this was affordable as we go. */
-	if (peer->channel->opener == REMOTE)
+	if (peer->channel->opener == REMOTE) {
 		status_trace("Feerates are %u/%u",
 			     peer->channel->view[LOCAL].feerate_per_kw,
 			     peer->channel->view[REMOTE].feerate_per_kw);
-		assert(can_funder_afford_feerate(peer->channel,
+		assert(can_opener_afford_feerate(peer->channel,
 						 peer->channel->view[LOCAL]
 						 .feerate_per_kw));
 	}

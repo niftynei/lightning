@@ -271,7 +271,7 @@ struct bitcoin_tx **channel_txs(const tal_t *ctx,
 	txs[0] = commit_tx(ctx, &channel->funding_txid,
 		       channel->funding_txout,
 		       channel->funding,
-		       channel->funder,
+		       channel->opener,
 		       channel->config[!side].to_self_delay,
 		       &keyset,
 		       channel->view[side].feerate_per_kw,
@@ -517,7 +517,7 @@ static enum channel_add_err add_htlc(struct channel *channel,
 					    &balance))
 			return CHANNEL_ERR_CHANNEL_CAPACITY_EXCEEDED;
 
-		if (channel->funder == sender) {
+		if (channel->opener == sender) {
 			if (amount_msat_less_sat(balance, fee)) {
 				status_trace("Cannot afford fee %s with %s above reserve",
 					     type_to_string(tmpctx, struct amount_sat,
@@ -528,12 +528,12 @@ static enum channel_add_err add_htlc(struct channel *channel,
 			}
 		}
 
-		/* Try not to add a payment which will take funder into fees
+		/* Try not to add a payment which will take opener into fees
 		 * on either our side or theirs. */
 		if (sender == LOCAL) {
 			if (!get_room_above_reserve(channel, view,
 						    adding, removing,
-						    channel->funder,
+						    channel->opener,
 						    &balance))
 				return CHANNEL_ERR_CHANNEL_CAPACITY_EXCEEDED;
 			/* Should be able to afford both their own commit tx
@@ -543,7 +543,7 @@ static enum channel_add_err add_htlc(struct channel *channel,
 					    committed,
 					    adding,
 					    removing,
-					    channel->funder);
+					    channel->opener);
 			/* set fee output pointer if given */
 			if (htlc_fee && amount_sat_greater(fee, *htlc_fee))
 				*htlc_fee = fee;
@@ -561,7 +561,7 @@ static enum channel_add_err add_htlc(struct channel *channel,
 					    committed,
 					    adding,
 					    removing,
-					    !channel->funder);
+					    !channel->opener);
 			/* set fee output pointer if given */
 			if (htlc_fee && amount_sat_greater(fee, *htlc_fee))
 				*htlc_fee = fee;
@@ -857,7 +857,7 @@ u32 approx_max_feerate(const struct channel *channel)
 	struct amount_sat avail;
 	const struct htlc **committed, **adding, **removing;
 
-	gather_htlcs(tmpctx, channel, !channel->funder,
+	gather_htlcs(tmpctx, channel, !channel->opener,
 		     &committed, &removing, &adding);
 
 	/* Assume none are trimmed; this gives lower bound on feerate. */
@@ -867,28 +867,28 @@ u32 approx_max_feerate(const struct channel *channel)
 
 	/* We should never go below reserve. */
 	if (!amount_sat_sub(&avail,
-			    amount_msat_to_sat_round_down(channel->view[!channel->funder].owed[channel->funder]),
-			    channel->config[!channel->funder].channel_reserve))
+			    amount_msat_to_sat_round_down(channel->view[!channel->opener].owed[channel->opener]),
+			    channel->config[!channel->opener].channel_reserve))
 		avail = AMOUNT_SAT(0);
 
 	return avail.satoshis / weight * 1000; /* Raw: once-off reverse feerate*/
 }
 
-bool can_funder_afford_feerate(const struct channel *channel, u32 feerate_per_kw)
+bool can_opener_afford_feerate(const struct channel *channel, u32 feerate_per_kw)
 {
 	struct amount_sat needed, fee;
-	struct amount_sat dust_limit = channel->config[!channel->funder].dust_limit;
+	struct amount_sat dust_limit = channel->config[!channel->opener].dust_limit;
 	size_t untrimmed;
 	const struct htlc **committed, **adding, **removing;
-	gather_htlcs(tmpctx, channel, !channel->funder,
+	gather_htlcs(tmpctx, channel, !channel->opener,
 		     &committed, &removing, &adding);
 
 	untrimmed = commit_tx_num_untrimmed(committed, feerate_per_kw, dust_limit,
-					    !channel->funder)
+					    !channel->opener)
 			+ commit_tx_num_untrimmed(adding, feerate_per_kw, dust_limit,
-						  !channel->funder)
+						  !channel->opener)
 			- commit_tx_num_untrimmed(removing, feerate_per_kw, dust_limit,
-						  !channel->funder);
+						  !channel->opener);
 
 	fee = commit_tx_base_fee(feerate_per_kw, untrimmed);
 
@@ -898,39 +898,39 @@ bool can_funder_afford_feerate(const struct channel *channel, u32 feerate_per_kw
 	 *     node's current commitment transaction:
 	 *     - SHOULD fail the channel
 	 */
-	/* Note: sender == funder */
+	/* Note: sender == opener */
 
 	/* How much does it think it has?  Must be >= reserve + fee */
 	if (!amount_sat_add(&needed, fee,
-			    channel->config[!channel->funder].channel_reserve))
+			    channel->config[!channel->opener].channel_reserve))
 		status_failed(STATUS_FAIL_INTERNAL_ERROR,
 			      "Cannot add fee %s and reserve %s",
 			      type_to_string(tmpctx, struct amount_sat,
 					     &fee),
 			      type_to_string(tmpctx, struct amount_sat,
-					     &channel->config[!channel->funder].channel_reserve));
+					     &channel->config[!channel->opener].channel_reserve));
 
 	status_trace("We need %s at feerate %u for %zu untrimmed htlcs: we have %s/%s",
 		     type_to_string(tmpctx, struct amount_sat, &needed),
 		     feerate_per_kw, untrimmed,
 		     type_to_string(tmpctx, struct amount_msat,
-				    &channel->view[LOCAL].owed[channel->funder]),
+				    &channel->view[LOCAL].owed[channel->opener]),
 		     type_to_string(tmpctx, struct amount_msat,
-				    &channel->view[REMOTE].owed[channel->funder]));
-	return amount_msat_greater_eq_sat(channel->view[!channel->funder].owed[channel->funder],
+				    &channel->view[REMOTE].owed[channel->opener]));
+	return amount_msat_greater_eq_sat(channel->view[!channel->opener].owed[channel->opener],
 					  needed);
 }
 
 bool channel_update_feerate(struct channel *channel, u32 feerate_per_kw)
 {
-	if (!can_funder_afford_feerate(channel, feerate_per_kw))
+	if (!can_opener_afford_feerate(channel, feerate_per_kw))
 		return false;
 
 	status_trace("Setting %s feerate to %u",
-		     side_to_str(!channel->funder), feerate_per_kw);
+		     side_to_str(!channel->opener), feerate_per_kw);
 
-	channel->view[!channel->funder].feerate_per_kw = feerate_per_kw;
-	channel->changes_pending[!channel->funder] = true;
+	channel->view[!channel->opener].feerate_per_kw = feerate_per_kw;
+	channel->changes_pending[!channel->opener] = true;
 	return true;
 }
 
@@ -978,8 +978,8 @@ bool channel_rcvd_revoke_and_ack(struct channel *channel,
 	if (change & HTLC_LOCAL_F_PENDING)
 		channel->changes_pending[LOCAL] = true;
 
-	/* For funder, ack also means time to apply new feerate locally. */
-	if (channel->funder == LOCAL &&
+	/* For opener, ack also means time to apply new feerate locally. */
+	if (channel->opener == LOCAL &&
 	    (channel->view[LOCAL].feerate_per_kw
 	     != channel->view[REMOTE].feerate_per_kw)) {
 		status_trace("Applying feerate %u to LOCAL",
@@ -1029,8 +1029,8 @@ bool channel_sending_revoke_and_ack(struct channel *channel)
 	if (change & HTLC_REMOTE_F_PENDING)
 		channel->changes_pending[REMOTE] = true;
 
-	/* For non-funder, sending ack means we apply any fund changes to them */
-	if (channel->funder == REMOTE
+	/* For non-opener, sending ack means we apply any fund changes to them */
+	if (channel->opener == REMOTE
 	    && (channel->view[LOCAL].feerate_per_kw
 		!= channel->view[REMOTE].feerate_per_kw)) {
 		status_trace("Applying feerate %u to REMOTE",
