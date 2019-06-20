@@ -47,6 +47,21 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 			      const struct ext_key *bip32_base);
 
 #ifdef EXPERIMENTAL_FEATURES
+/**
+ * funding_tx: create a P2WSH funding transaction for a channel.
+ * @ctx: context to tal from.
+ * @outnum: (out) txout (0 or 1) which is the funding output.
+ * @feerate_kw_funding: (in) feerate for the funding transaction
+ * @total_funding: (out) total funding amount for this transaction
+ * @opener_funding: (in) funding amount contributed by opener
+ * @accepter_funding: (in) funding amount contributed by accepter
+ * @opener_inputs: (in) inputs from the opener
+ * @accepter_inputs: (in) inputs from the accepter
+ * @opener_outputs: (in) outputs for the opener
+ * @accepter_outputs: (in) outputs for the accepter
+ * @local_fundingkey: (in) local key for 2of2 funding output.
+ * @remote_fundingkey: (in) remote key for 2of2 funding output.
+ */
 struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           u16 *outnum,
 					   u32 feerate_kw_funding,
