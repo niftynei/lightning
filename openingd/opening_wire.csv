@@ -131,6 +131,10 @@ opening_fundee,,our_channel_reserve_satoshis,struct amount_sat
 opening_fundee,,shutdown_len,u16
 opening_fundee,,shutdown_scriptpubkey,shutdown_len*u8
 
+opening_fundee2,6203
+opening_fundee2,,pps,struct per_peer_state
+# TODO: flesh this out!
+
 # openingd->master: they initiated a dual-fundable channel
 opening_dual_open_started,6200
 opening_dual_open_started,,their_funding,struct amount_sat
