@@ -35,6 +35,7 @@ struct channel {
 
 	/* Which side offered channel? */
 	enum side opener;
+	bool contributed_funds;
 
 	/* Is there a single subdaemon responsible for us? */
 	struct subd *owner;
