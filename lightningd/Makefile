@@ -25,6 +25,7 @@ LIGHTNINGD_COMMON_OBJS :=			\
 	common/configdir.o			\
 	common/crypto_state.o			\
 	common/daemon.o				\
+	common/daemon_conn.o			\
 	common/derive_basepoints.o		\
 	common/features.o			\
 	common/funding_tx.o			\
@@ -47,6 +48,7 @@ LIGHTNINGD_COMMON_OBJS :=			\
 	common/permute_tx.o			\
 	common/pseudorand.o			\
 	common/sphinx.o				\
+	common/status.o                         \
 	common/status_wire.o			\
 	common/timeout.o			\
 	common/type_to_string.o			\

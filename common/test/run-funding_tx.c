@@ -43,6 +43,10 @@ u32 fromwire_u32(const u8 **cursor UNNEEDED, size_t *max UNNEEDED)
 /* Generated stub for fromwire_u64 */
 u64 fromwire_u64(const u8 **cursor UNNEEDED, size_t *max UNNEEDED)
 { fprintf(stderr, "fromwire_u64 called!\n"); abort(); }
+/* Generated stub for status_failed */
+void status_failed(enum status_failreason code UNNEEDED,
+		   const char *fmt UNNEEDED, ...)
+{ fprintf(stderr, "status_failed called!\n"); abort(); }
 /* Generated stub for towire_amount_sat */
 void towire_amount_sat(u8 **pptr UNNEEDED, const struct amount_sat sat UNNEEDED)
 { fprintf(stderr, "towire_amount_sat called!\n"); abort(); }

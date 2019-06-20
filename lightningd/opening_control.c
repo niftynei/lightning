@@ -10,6 +10,7 @@
 #include <common/key_derive.h>
 #include <common/param.h>
 #include <common/per_peer_state.h>
+#include <common/pseudorand.h>
 #include <common/wallet_tx.h>
 #include <common/wire_error.h>
 #include <connectd/gen_connect_wire.h>
@@ -29,6 +30,7 @@
 #include <lightningd/plugin_hook.h>
 #include <lightningd/subd.h>
 #include <openingd/gen_opening_wire.h>
+#include <wallet/wallet.h>
 #include <wire/wire.h>
 #include <wire/wire_sync.h>
 
@@ -587,6 +589,147 @@ cleanup:
 }
 
 #ifdef EXPERIMENTAL_FEATURES
+static struct output_info *build_outputs(const tal_t *ctx,
+					 const struct ext_key *bip32_base,
+					 u32 change_keyindex,
+					 struct amount_sat change)
+{
+	struct output_info output;
+	struct output_info *outputs;
+
+	outputs = tal_arr(ctx, struct output_info, 0);
+
+	struct pubkey *changekey;
+
+	changekey = tal(tmpctx, struct pubkey);
+	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
+		status_failed(STATUS_FAIL_MASTER_IO,
+			      "Bad change key %u", change_keyindex);
+
+	output.satoshis = change;
+	output.script = scriptpubkey_p2wpkh(&output, changekey);
+	tal_arr_expand(&outputs, output);
+
+	return outputs;
+}
+
+/* This method takes a set of utxos and 'translates' it to the input_info struct
+ * we'll use input_infos on the wire to communicate between lightningd/openingd
+ * @ctx: context to allocate from
+ * @w: (in) wallet
+ * @utxos: (in) utxos to convert to input_info
+ * @inputs: (out) converted input_info
+ */
+static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
+			    const struct utxo **utxos,
+			    struct input_info **inputs)
+{
+	size_t i = 0;
+	inputs = tal_arr(ctx, struct input_info *, 0);
+
+	for (i = 0; i < tal_count(utxos); i++) {
+		struct input_info *input = tal(inputs, struct input_info);
+
+		input->satoshis = utxos[i]->amount;
+		input->prevtx_txid = utxos[i]->txid.shad.sha;
+		input->prevtx_vout = utxos[i]->outnum;
+		input->prevtx_scriptpubkey = tal_dup_arr(input, u8, utxos[i]->scriptPubkey,
+							 tal_bytelen(utxos[i]->scriptPubkey), 0);
+
+		// All our outputs are sig + key (P2WPKH or P2SH-P2WPKH)
+		input->max_witness_len = 1 + 1 + 73 + 1 + 33;
+
+		/*
+		 *	FIXME: add BOLT reference when merged.
+		 *	`input_info`.`script` is the scriptPubkey data for the input.
+		 *	NB: for native SegWit inputs (P2WPKH and P2WSH) inputs, the `script` field
+		 *	will be empty.
+		 */
+		if (utxos[i]->is_p2sh)
+			input->script = derive_redeemscript(w, utxos[i]->keyindex);
+
+		tal_arr_expand(&inputs, input);
+	}
+}
+
+static void accepter_select_coins(struct subd *openingd,
+				  const u8 *msg,
+				  const int *fds,
+				  struct uncommitted_channel *uc)
+{
+	struct amount_sat our_funding, our_change,
+			  max_avail_sat, opener_funding;
+	u16 contrib_count, max_allowed_inputs;
+	const struct utxo **utxos;
+	struct input_info *our_inputs;
+	struct output_info *our_outputs;
+
+	// FIXME: where do these come from?
+	struct ext_key bip32_base;
+	u32 change_keyindex;
+
+	struct wallet *w = openingd->ld->wallet;
+
+	if (!fromwire_opening_dual_open_started(msg,
+		                                &opener_funding,
+						&contrib_count))
+		log_broken(uc->log, "bad OPENING_DUAL_OPEN_STARTED %s",
+			   tal_hex(msg, msg));
+		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_OPEN_STARTED");
+		goto failed;
+
+	/**
+	 * FIXME: Fill in with bolt info when merged
+	 *- if is the `accepter`:
+	 *  - consider the `contrib_count` the total of `num_inputs` plus
+	 *    `num_outputs' from `funding_compose`, with minimum 2.
+	 *  - MUST NOT send `input_info`s or `output_info` which
+	 *    exceeds the `contrib_count` limit.
+	 *  - MAY send zero inputs and/or outputs.
+	 */
+	/* max allowed is remote's contrib_count minus one change output */
+	max_allowed_inputs = contrib_count - 1;
+
+	/* Calculate the max we could contribute to this channel */
+	wallet_compute_max(tmpctx, w, max_allowed_inputs, &max_avail_sat);
+
+	// FIXME: add a hook for deciding how much to fund a channel with.
+	// - send max_avail_sat, **node_id, their funding amount.
+
+	/* for now, we attempt to make a balanced channel */
+	if (amount_sat_greater_eq(max_avail_sat, opener_funding))
+		our_funding = opener_funding;
+	else
+		our_funding = max_avail_sat;
+
+	/* obfuscate our funding availability, a wee bit */
+	// TODO: remove this after hook is implemented
+	if (pseudorand(7) % 7)
+		our_funding.satoshis = our_funding.satoshis * pseudorand(100) / 100; /* Raw: value set */
+
+	utxos = wallet_select_coins(tmpctx, w, our_funding, 0, 0, UINT32_MAX,
+				    NO_PAY, NULL, &our_change);
+
+	if (!utxos)
+		our_funding = AMOUNT_SAT(0);
+
+	utxos_to_inputs(tmpctx, w, utxos, &our_inputs);
+	our_outputs = build_outputs(tmpctx, &bip32_base,
+				     change_keyindex, our_change);
+
+	msg = towire_opening_dual_open_continue(tmpctx, false,
+						our_funding,
+						our_inputs,
+						our_outputs);
+	subd_send_msg(openingd, take(msg));
+	return;
+failed:
+	subd_release_channel(openingd, uc);
+	uc->openingd = NULL;
+	/* Frees fc too, and tmpctx */
+	tal_free(uc);
+}
+
 static void accepter_broadcast_failed_or_succeeded(struct channel *channel,
 						   int exitstatus, const char *msg)
 {
@@ -1095,6 +1238,11 @@ static unsigned int openingd_msg(struct subd *openingd,
 		opening_fundee2_finished(openingd, msg, fds, uc);
 		return 0;
 #endif /* EXPERIMENTAL_FEATURES */
+
+	case WIRE_OPENING_DUAL_OPEN_STARTED:
+		accepter_select_coins(openingd, msg, fds, uc);
+		return 0;
+
 	/* We send these! */
 	case WIRE_OPENING_INIT:
 	case WIRE_OPENING_FUNDER:
@@ -1103,6 +1251,7 @@ static unsigned int openingd_msg(struct subd *openingd,
 	case WIRE_OPENING_FUNDER_CANCEL:
 	case WIRE_OPENING_GOT_OFFER_REPLY:
 	case WIRE_OPENING_DEV_MEMLEAK:
+	case WIRE_OPENING_DUAL_OPEN_CONTINUE:
 	/* Replies never get here */
 	case WIRE_OPENING_DEV_MEMLEAK_REPLY:
 		break;

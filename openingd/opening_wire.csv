@@ -131,6 +131,22 @@ opening_fundee,,our_channel_reserve_satoshis,struct amount_sat
 opening_fundee,,shutdown_len,u16
 opening_fundee,,shutdown_scriptpubkey,shutdown_len*u8
 
+# openingd->master: they initiated a dual-fundable channel
+opening_dual_open_started,6200
+opening_dual_open_started,,their_funding,struct amount_sat
+opening_dual_open_started,,contrib_count,u16
+
+# master->openingd: what we'd like to put into the channel (or a fail)
+#include <wire/gen_peer_wire.h>
+opening_dual_open_continue,6201
+# if there's a problem trying to open this, we should fail
+opening_dual_open_continue,,is_err,bool
+opening_dual_open_continue,,our_funding,struct amount_sat
+opening_dual_open_continue,,num_our_inputs,u16
+opening_dual_open_continue,,our_inputs,num_our_inputs*struct input_info
+opening_dual_open_continue,,num_our_outputs,u16
+opening_dual_open_continue,,our_outputs,num_our_outputs*struct output_info
+
 # master -> openingd: do you have a memleak?
 opening_dev_memleak,6033
 
