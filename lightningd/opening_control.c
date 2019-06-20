@@ -657,6 +657,8 @@ static void accepter_select_coins(struct subd *openingd,
 				  const int *fds,
 				  struct uncommitted_channel *uc)
 {
+	struct wallet *w = openingd->ld->wallet;
+
 	struct amount_sat our_funding, our_change,
 			  max_avail_sat, opener_funding;
 	u16 contrib_count, max_allowed_inputs;
@@ -664,11 +666,7 @@ static void accepter_select_coins(struct subd *openingd,
 	struct input_info *our_inputs;
 	struct output_info *our_outputs;
 
-	// FIXME: where do these come from?
-	struct ext_key bip32_base;
 	u32 change_keyindex;
-
-	struct wallet *w = openingd->ld->wallet;
 
 	if (!fromwire_opening_dual_open_started(msg,
 		                                &opener_funding,
@@ -713,9 +711,12 @@ static void accepter_select_coins(struct subd *openingd,
 	if (!utxos)
 		our_funding = AMOUNT_SAT(0);
 
+	change_keyindex = wallet_get_newindex(openingd->ld);
+
 	utxos_to_inputs(tmpctx, w, utxos, &our_inputs);
-	our_outputs = build_outputs(tmpctx, &bip32_base,
-				     change_keyindex, our_change);
+	our_outputs = build_outputs(tmpctx,
+			            w->bip32_base,
+				    change_keyindex, our_change);
 
 	msg = towire_opening_dual_open_continue(tmpctx, false,
 						our_funding,
