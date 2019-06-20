@@ -43,7 +43,6 @@
 #include <poll.h>
 #include <secp256k1.h>
 #include <stdio.h>
-#include <wallet/wallet.h>
 #include <wally_bip32.h>
 #include <wire/gen_peer_wire.h>
 #include <wire/peer_wire.h>
@@ -1576,62 +1575,6 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 }
 
 #if EXPERIMENTAL_FEATURES
-static struct input_info **utxos_to_inputs(const tal_t *ctx, struct wallet *w,
-					   const struct utxo **utxos)
-{
-	size_t i = 0;
-	struct input_info **inputs = tal_arr(ctx, struct input_info*, 0);	
-
-	for (i = 0; i < tal_count(utxos); i++) {
-		struct input_info *input = tal(inputs, struct input_info);
-
-		input->satoshis = utxos[i]->amount;
-		input->prevtx_txid = utxos[i]->txid.shad.sha;
-		input->prevtx_vout = utxos[i]->outnum;
-		input->prevtx_scriptpubkey = tal_dup_arr(input, u8, utxos[i]->scriptPubkey,
-							 tal_bytelen(utxos[i]->scriptPubkey), 0);
-
-		// All our outputs are sig + key (P2WPKH or P2SH-P2WPKH)
-		input->max_witness_len = 1 + 1 + 73 + 1 + 33;
-
-		/*
-		 *	FIXME: add BOLT reference when merged.
-		 *	`input_info`.`script` is the scriptPubkey data for the input.
-		 *	NB: for native SegWit inputs (P2WPKH and P2WSH) inputs, the `script` field
-		 *	will be empty. 
-		 */
-		if (utxos[i]->is_p2sh)
-			input->script = derive_redeemscript(w, utxos[i]->keyindex);
-
-		tal_arr_expand(&inputs, input);
-	}
-
-	return inputs;
-}
-
-static struct output_info *build_outputs(const tal_t *ctx,
-					 const struct ext_key *bip32_base,
-					 u32 change_keyindex,
-					 struct amount_sat change)
-{
-	struct output_info output;
-	struct output_info *outputs;
-
-	outputs = tal_arr(ctx, struct output_info, 0);
-
-	struct pubkey *changekey;
-	
-	changekey = tal(tmpctx, struct pubkey);
-	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
-		status_failed(STATUS_FAIL_MASTER_IO,
-			      "Bad change key %u", change_keyindex);
-	output.satoshis = change;
-	output.script = scriptpubkey_p2wpkh(&output, changekey);
-	tal_arr_expand(&outputs, output);
-
-	return outputs;
-}
-
 struct input_check {
 	struct input_info **inputs;
 	size_t index;
@@ -1800,36 +1743,10 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 }
 
 static u8 *fundee_channel2(struct state *state,
-			   const u8 *open_channel2_msg)
+			   const u8 *msg)
 {
-	// FIXME: get from master?
-	struct ext_key bip32_base;
-	u32 change_keyindex;
-
-	struct channel_id id_in;
-	struct basepoints theirs;
-	struct pubkey their_funding_pubkey;
-	struct bitcoin_signature their_sig, sig;
-	struct bitcoin_tx *local_commit, *remote_commit, *funding_tx;
-	struct bitcoin_blkid chain_hash;
 	struct opening_tlv *opening_tlv;
-	struct input_info **remote_inputs, **our_inputs;
-	struct output_info **remote_outputs, **our_outputs;
-	struct amount_sat max_avail_sat, our_funding,
-			  our_change, opener_funding;
-	struct amount_msat local_msat;
-	secp256k1_ecdsa_signature *htlc_sigs;
-	u32 max_allowed_inputs, contrib_count;
-	struct witness_stack **witness_stack, *our_witnesses;
-	const struct utxo **utxos;
-
-	// FIXME: i think i need to move this out into master daemon 
-	struct wallet *w;
-
-	u8 *msg;
-	const u8 *wscript;
 	u8 channel_flags;
-	char* err_reason;
 
 	opening_tlv = tal(state, struct opening_tlv);
 
@@ -1864,7 +1781,7 @@ static u8 *fundee_channel2(struct state *state,
 				    opening_tlv))
 		peer_failed(state->pps, NULL,
 			    "Bad open_channel2 %s",
-			    tal_hex(open_channel2_msg, open_channel2_msg));
+			    tal_hex(msg, msg));
 
 	if (!check_open_channel_state(state, &state->chain_hash))
 		return NULL;
@@ -1882,50 +1799,43 @@ static u8 *fundee_channel2(struct state *state,
 	if (!check_config_bounds_no_reserve(state, &state->remoteconf, false))
 		return NULL;
 
-	/**
-	 * FIXME: Fill in with bolt info when merged
-  	 *- if is the `accepter`:
-  	 *  - consider the `contrib_count` the total of `num_inputs` plus
-  	 *    `num_outputs' from `funding_compose`, with minimum 2.
-  	 *  - MUST NOT send `input_info`s or `output_info` which
-  	 *    exceeds the `contrib_count` limit.
-  	 *  - MAY send zero inputs and/or outputs.
-	 */
-	/* max allowed is remote's contrib_count minus one change output */
-	max_allowed_inputs = contrib_count - 1;
-
-	/* Cache the opener's funding amount for later */
-	opener_funding = state->funding;
-
-	/* Calculate the max we could contribute to this channel */
-	wallet_compute_max(state, w, max_allowed_inputs, &max_avail_sat);
-
-	// FIXME: add a hook for deciding how much to fund a channel with.
-	// - send max_avail_sat, node_id, their funding amount.
-	
-	/* for now, we attempt to make a balanced channel */
-	if (amount_sat_greater_eq(max_avail_sat, state->funding))
-		our_funding = state->funding;
-	else
-		our_funding = max_avail_sat;
-
-	/* obfuscate our funding availability, a wee bit */
-	// TODO: remove this after hook is implemented
-	if (pseudorand(7) % 7)
-		our_funding.satoshis = our_funding.satoshis * pseudorand(100) / 100; /* Raw: value set */
-
-
-	utxos = wallet_select_coins(state, w, our_funding, 0, 0, UINT32_MAX,
-				    NO_PAY, NULL, &our_change);
-
-	if (!utxos)
-		our_funding = AMOUNT_SAT(0);
-
 	/* If they've sent an option_upfront_shutdown_script, save it */
 	if (opening_tlv && opening_tlv->option_upfront_shutdown_script)
 		state->remoteconf.shutdown_scriptpubkey =
 			tal_steal(state, 
 				  opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey);
+
+	return towire_opening_dual_open_started(tmpctx,
+						state->funding,
+						state->contrib_count);
+}
+
+static u8 *duel_accepted(struct state *state,
+			 bool fail_open,
+			 struct amount_sat our_funding,
+			 struct input_info **our_inputs,
+			 struct output_info **our_outputs)
+{
+	struct channel_id id_in;
+	struct input_info *remote_inputs;
+	struct output_info *remote_outputs;
+	struct bitcoin_tx *local_commit, *remote_commit, *funding_tx;
+	secp256k1_ecdsa_signature *htlc_sigs;
+	struct witness_stack *witness_stack, *our_witnesses;
+	struct bitcoin_signature their_sig, sig;
+	struct amount_sat opener_funding;
+	struct amount_msat local_msat;
+
+	const u8 *wscript;
+	u8 *msg;
+	char* err_reason;
+
+	/* If master has decided we don't want to open this channel,
+	 * we'll fail it here. */
+	if (fail_open)
+		peer_failed(state->pps,
+			    &state->channel_id,
+			    "Unable to complete accept");
 
 	/* OK, we accept! */
 	msg = towire_accept_channel2(state, &state->channel_id,
@@ -1977,9 +1887,8 @@ static u8 *fundee_channel2(struct state *state,
 		verify_input_scripts(state, remote_inputs);
 	*/
 
-	our_inputs = utxos_to_inputs(state, w, utxos);
-	*our_outputs = build_outputs(state, &bip32_base,
-				    change_keyindex, our_change);
+	/* Unnecessary but helps make it more clear what's going on, I think */
+	opener_funding = state->funding;
 
 	/* Build the funding transaction, so we can confirm their sigs and sign with ours*/
 	funding_tx = dual_funding_funding_tx(state,
@@ -1987,9 +1896,9 @@ static u8 *fundee_channel2(struct state *state,
 				   	     state->feerate_per_kw_funding,
 					     &state->funding,
 					     &opener_funding, our_funding,
-					     (const struct input_info **)remote_inputs,
+					     (const struct input_info **)&remote_inputs,
 					     (const struct input_info **)our_inputs,
-					     (const struct output_info **)remote_outputs,
+					     (const struct output_info **)&remote_outputs,
 					     (const struct output_info **)our_outputs,
 					     &state->our_funding_pubkey,
 					     &their_funding_pubkey);
@@ -2165,6 +2074,8 @@ static u8 *fundee_channel2(struct state *state,
 			    "Received %ld witnesses for %ld inputs", 
 			    tal_count(witness_stack), tal_count(remote_inputs));
 
+	// FIXME: do something with this?
+	const struct utxo **utxos = NULL;
 
 	/* FIXME: update with BOLT ref when included
 	 * - MUST set `witness` to the serialized witness data for each of its
@@ -2333,13 +2244,16 @@ static u8 *handle_master_in(struct state *state)
 {
 	u8 *msg = wire_sync_read(tmpctx, REQ_FD);
 	enum opening_wire_type t = fromwire_peektype(msg);
-	struct amount_sat change;
+	struct amount_sat change, our_funding;
 	u32 change_keyindex;
 	u8 channel_flags;
 	struct bitcoin_txid funding_txid;
 	u16 funding_txout;
 	struct utxo **utxos;
 	struct ext_key bip32_base;
+	bool fail_open;
+	struct input_info *our_inputs;
+	struct output_info *our_outputs;
 
 	switch (t) {
 	case WIRE_OPENING_FUNDER:
@@ -2386,6 +2300,19 @@ static u8 *handle_master_in(struct state *state)
 		sync_crypto_write(state->pps, take(msg));
 		negotiation_aborted(state, true, "Channel open canceled by RPC");
 		return NULL;
+	case WIRE_OPENING_DUAL_OPEN_CONTINUE:
+		if (!fromwire_opening_dual_open_continue(msg, msg,
+							 &fail_open,
+							 &our_funding,
+							 &our_inputs,
+					                 &our_outputs))
+			master_badmsg(WIRE_OPENING_FUNDER_START, msg);
+		// FIXME: is this the end of the funding negotiation?
+		return duel_accepted(state,
+				     fail_open,
+				     our_funding,
+				     &our_inputs,
+				     &our_outputs);
 	case WIRE_OPENING_DEV_MEMLEAK:
 #if DEVELOPER
 		handle_dev_memleak(state, msg);
@@ -2399,6 +2326,7 @@ static u8 *handle_master_in(struct state *state)
 	case WIRE_OPENING_FUNDER_FAILED:
 	case WIRE_OPENING_GOT_OFFER:
 	case WIRE_OPENING_GOT_OFFER_REPLY:
+	case WIRE_OPENING_DUAL_OPEN_STARTED:
 		break;
 	}
 
