@@ -2063,7 +2063,7 @@ static u8 *duel_accepted(struct state *state,
 		       "Incoming channel: commitment_signed sent, waiting for funding_signed2");
 
 	
-	if (!fromwire_funding_signed2(state, msg, &id_in, witness_stack))
+	if (!fromwire_funding_signed2(state, msg, &id_in, &witness_stack))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Bad funding_signed2 %s", tal_hex(msg, msg));
