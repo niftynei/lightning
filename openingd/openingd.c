@@ -1876,10 +1876,11 @@ static u8 *duel_accepted(struct state *state,
 	check_channel_id(state, &id_in, &state->channel_id);
 
 	if (!check_remote_input_outputs(state, state,
-					remote_inputs, remote_outputs,
-					contrib_count))
+					&remote_inputs, &remote_outputs,
+					state->contrib_count))
 		return NULL;
 
+	// FIXME: break this over to master
 	/*
 	if (tal_count(remote_inputs))
 		// FIXME: split this method in half here...
@@ -1901,7 +1902,7 @@ static u8 *duel_accepted(struct state *state,
 					     (const struct output_info **)&remote_outputs,
 					     (const struct output_info **)our_outputs,
 					     &state->our_funding_pubkey,
-					     &their_funding_pubkey);
+					     &state->their_funding_pubkey);
 					     
 	if (!funding_tx)
 		peer_failed(state->pps,
@@ -1914,9 +1915,9 @@ static u8 *duel_accepted(struct state *state,
 		status_failed(STATUS_FAIL_INTERNAL_ERROR,
 			      "Overflow in total channel funding satoshis %s + %s",
 			      type_to_string(tmpctx, struct amount_sat,
-				             &state->funding),
+				             &opener_funding),
 			      type_to_string(tmpctx, struct amount_sat,
-			                     &max_avail_sat));
+			                     &our_funding));
 
 	/* This reserves 1% of the channel (rounded up) */
 	set_reserve(state);
@@ -1937,7 +1938,7 @@ static u8 *duel_accepted(struct state *state,
 			                     &our_funding));
 
 	state->channel = new_initial_channel(state,
-					     &chain_hash,
+					     &state->chain_hash,
 					     &state->funding_txid,
 					     state->funding_txout,
 					     state->minimum_depth,
@@ -1946,9 +1947,10 @@ static u8 *duel_accepted(struct state *state,
 					     state->feerate_per_kw,
 					     &state->localconf,
 					     &state->remoteconf,
-					     &state->our_points, &theirs,
+					     &state->our_points,
+					     &state->their_points,
 					     &state->our_funding_pubkey,
-					     &their_funding_pubkey,
+					     &state->their_funding_pubkey,
 					     !amount_sat_eq(our_funding, AMOUNT_SAT(0)),
 					     REMOTE);
 
@@ -2010,7 +2012,7 @@ static u8 *duel_accepted(struct state *state,
 		return NULL;
 	}
 
-	if (!check_tx_sig(local_commit, 0, NULL, wscript, &their_funding_pubkey, &their_sig))
+	if (!check_tx_sig(local_commit, 0, NULL, wscript, &state->their_funding_pubkey, &their_sig))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Bad signature %s on tx %s using key %s",
@@ -2018,7 +2020,7 @@ static u8 *duel_accepted(struct state *state,
 					   &their_sig),
 			    type_to_string(tmpctx, struct bitcoin_tx, local_commit),
 			    type_to_string(tmpctx, struct pubkey,
-					   &their_funding_pubkey));
+					   &state->their_funding_pubkey));
 
 	/* FIXME: Perhaps we should have channeld generate this, so we
 	 * can't possibly send before channel committed to disk? */
@@ -2090,7 +2092,7 @@ static u8 *duel_accepted(struct state *state,
 					   (const struct output_info *)remote_outputs,
 					   (const struct output_info *)our_outputs,
 					   &state->our_funding_pubkey,
-					   &their_funding_pubkey);
+					   &state->their_funding_pubkey);
 	wire_sync_write(HSM_FD, take(msg));
 	msg = wire_sync_read(tmpctx, HSM_FD);
 	if (!fromwire_hsm_dual_funding_sigs_reply(msg, msg, &our_witnesses))
