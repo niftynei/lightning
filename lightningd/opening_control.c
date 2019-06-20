@@ -616,24 +616,42 @@ static void opening_fundee2_finished(struct subd *openingd,
 				     const int *fds,
 				     struct uncommitted_channel *uc)
 {
+	struct lightningd *ld = openingd->ld;
+	struct channel *channel;
+	const struct bitcoin_tx *fundingtx;
+	struct per_peer_state *pps;
+
 	assert(tal_count(fds) == 2);
+
+	if (!fromwire_opening_fundee2(tmpctx, reply,
+				     &pps)) {
+		log_broken(uc->log, "bad OPENING_FUNDEE2 %s",
+			   tal_hex(reply, reply));
+		uncommitted_channel_disconnect(uc, "bad OPENING_FUNDEE2");
+		goto failed;
+	}
 
 	/* Send it out and watch for confirms. */
 	broadcast_tx(ld->topology, channel, fundingtx, accepter_broadcast_failed_or_succeeded);
 	channel_watch_funding(ld, channel);
 
 	/* Mark consumed outputs as spent */
-	wallet_confirm_utxos(ld->wallet, fc->wtx.utxos);
+	// FIXME: make sure that utxos end up in fc->wtx->utxos
+	wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
 
 	/* Start normal channel daemon. */
-	peer_start_channeld(channel, &cs, fds[0], fds[1], NULL, false);
+	peer_start_channeld(channel, pps, NULL, false);
 
-	subd_release_channel(openingd, fc->uc);
-	fc->uc->openingd = NULL;
-
+	subd_release_channel(openingd, uc);
+	uc->openingd = NULL;
 	return;
 
-// TODO: failure cases.
+failed:
+	// FIXME: double check that this is sufficient
+	close(fds[0]);
+	close(fds[1]);
+	close(fds[3]);
+	tal_free(uc);
 }
 #endif /* EXPERIMENTAL_FEATURES */
 
