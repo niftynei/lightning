@@ -42,6 +42,7 @@ struct channel *new_full_channel(const tal_t *ctx,
 				 const struct basepoints *remote_basepoints,
 				 const struct pubkey *local_funding_pubkey,
 				 const struct pubkey *remote_funding_pubkey,
+				 bool contributed_funds,
 				 enum side opener);
 
 /**

@@ -467,6 +467,7 @@ int main(void)
 				    &localbase, &remotebase,
 				    &local_funding_pubkey,
 				    &remote_funding_pubkey,
+				    true,
 				    LOCAL);
 	rchannel = new_full_channel(tmpctx,
 				    &chainparams->genesis_blockhash,
@@ -478,6 +479,7 @@ int main(void)
 				    &remotebase, &localbase,
 				    &remote_funding_pubkey,
 				    &local_funding_pubkey,
+				    false,
 				    REMOTE);
 
 	/* BOLT #3:
