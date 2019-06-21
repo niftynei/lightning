@@ -6,8 +6,6 @@
 #include <bitcoin/varint.h>
 #include <ccan/ptrint/ptrint.h>
 #include <common/permute_tx.h>
-#include <common/status.h>
-#include <common/status_levels.h>
 #include <common/type_to_string.h>
 #include <common/utxo.h>
 
@@ -58,7 +56,7 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 
 #ifdef EXPERIMENTAL_FEATURES
 /* We leave out the change addresses if there's no change left after fees */
-static size_t calculate_input_weights(const struct input_info **inputs,
+static size_t calculate_input_weights(struct input_info **inputs,
 				      struct amount_sat *total)
 {
 	u32 input_weight;
@@ -80,20 +78,13 @@ static size_t calculate_input_weights(const struct input_info **inputs,
 		input_weight += inputs[i]->max_witness_len;
 		weight += input_weight;
 
-		if (!amount_sat_add(total, *total, inputs[i]->satoshis))
-			status_failed(STATUS_FAIL_INTERNAL_ERROR,
-				      "Overflow in input amount addition %s + %s (%ld/%ld)",
-				      type_to_string(tmpctx, struct amount_sat,
-						     total),
-				      type_to_string(tmpctx, struct amount_sat,
-						     &inputs[i]->satoshis),
-				      i, tal_count(inputs));
+		assert(amount_sat_add(total, *total, inputs[i]->satoshis));
 	}
 
 	return weight;
 }
 
-static size_t calculate_output_weights(const struct output_info **outputs)
+static size_t calculate_output_weights(struct output_info **outputs)
 {
 	size_t i, output_weights = 0, scriptlen;
 
@@ -106,12 +97,12 @@ static size_t calculate_output_weights(const struct output_info **outputs)
 	return output_weights;
 }
 
-static size_t calculate_weight(const struct input_info **opener_inputs,
-		            const struct input_info **accepter_inputs,
-		            const struct output_info **opener_outputs,
-		            const struct output_info **accepter_outputs,
-			    struct amount_sat *opener_total,
-			    struct amount_sat *accepter_total)
+static size_t calculate_weight(struct input_info **opener_inputs,
+		               struct input_info **accepter_inputs,
+		               struct output_info **opener_outputs,
+		               struct output_info **accepter_outputs,
+			       struct amount_sat *opener_total,
+			       struct amount_sat *accepter_total)
 
 {
 	size_t weight;
@@ -134,7 +125,7 @@ static size_t calculate_weight(const struct input_info **opener_inputs,
 	return weight;
 }
 
-static const struct output_info *find_change_output(const struct output_info **outputs)
+static const struct output_info *find_change_output(struct output_info **outputs)
 {
 	size_t i = 0;
 	for (i = 0; i < tal_count(outputs); i++) {
@@ -144,25 +135,18 @@ static const struct output_info *find_change_output(const struct output_info **o
 	return NULL;
 }
 
-static struct amount_sat calculate_output_value(const struct output_info **outputs)
+static struct amount_sat calculate_output_value(struct output_info **outputs)
 {
 	size_t i = 0;
 	struct amount_sat total = AMOUNT_SAT(0);
 
 	for (i = 0; i < tal_count(outputs); i++) {
-		if (!amount_sat_add(&total, total, outputs[i]->satoshis))
-			status_failed(STATUS_FAIL_INTERNAL_ERROR,
-				      "Overflow in calculating output value %s + %s (%ld / %ld)",
-				      type_to_string(tmpctx, struct amount_sat,
-						     &total),
-				      type_to_string(tmpctx, struct amount_sat,
-						     &outputs[i]->satoshis),
-				      i, tal_count(outputs));
+		assert(amount_sat_add(&total, total, outputs[i]->satoshis));
 	}
 	return total;
 }
 
-static void add_inputs(struct bitcoin_tx *tx, const struct input_info **inputs)
+static void add_inputs(struct bitcoin_tx *tx, struct input_info **inputs)
 {
 	size_t i = 0;
 	for (i = 0; i < tal_count(inputs); i++) {
@@ -173,7 +157,7 @@ static void add_inputs(struct bitcoin_tx *tx, const struct input_info **inputs)
 	}
 }
 
-static void add_outputs(struct bitcoin_tx *tx, const struct output_info **outputs,
+static void add_outputs(struct bitcoin_tx *tx, struct output_info **outputs,
 		        const struct amount_sat *change)
 {
 	size_t i = 0;
@@ -201,10 +185,10 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 					   struct amount_sat *total_funding,
 				           struct amount_sat *opener_funding,
 					   struct amount_sat accepter_funding,
-				           const struct input_info **opener_inputs,
-				           const struct input_info **accepter_inputs,
-					   const struct output_info **opener_outputs,
-					   const struct output_info **accepter_outputs,
+				           struct input_info **opener_inputs,
+				           struct input_info **accepter_inputs,
+					   struct output_info **opener_outputs,
+					   struct output_info **accepter_outputs,
 				           const struct pubkey *local_fundingkey,
 				           const struct pubkey *remote_fundingkey)
 {
@@ -281,13 +265,7 @@ build_tx:
 		     tal_hex(wscript, wscript));
 
 	*total_funding = *opener_funding;
-	if (!amount_sat_add(total_funding, *total_funding, accepter_funding))
-		status_failed(STATUS_FAIL_INTERNAL_ERROR,
-			      "Overflow in funding + accepter_funding %s + %s",
-			      type_to_string(tmpctx, struct amount_sat,
-					     total_funding),
-			      type_to_string(tmpctx, struct amount_sat,
-					     &accepter_funding));
+	assert(amount_sat_add(total_funding, *total_funding, accepter_funding));
 	
 	const void *map[output_count];
 	for (i = 0; i < output_count; i++) {
