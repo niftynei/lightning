@@ -1465,10 +1465,8 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 				     &total_funding,
 				     &opener_funding,
 				     accepter_funding,
-				     (const struct input_info **)opener_inputs,
-				     (const struct input_info **)accepter_inputs,
-				     (const struct output_info **)opener_outputs,
-				     (const struct output_info **)accepter_outputs,
+				     opener_inputs, accepter_inputs,
+				     opener_outputs, accepter_outputs,
 				     &local_pubkey,
 				     &remote_pubkey);
 	

@@ -74,7 +74,10 @@ struct funding_channel {
 
 	struct wallet_tx *wtx;
 	struct amount_msat push;
-	struct amount_sat funding;
+	struct amount_sat opener_funding, accepter_funding;
+	struct amount_sat local_change;
+	u32 feerate_funding;
+
 	u8 channel_flags;
 
 	/* Variables we need to compose fields in cmd's response */
@@ -92,6 +95,12 @@ struct funding_channel {
 
 	/* Any commands trying to cancel us. */
 	struct command **cancels;
+
+	/* For dual funded channels, hang onto the set of utxo's */
+	const struct utxo **utxos;
+	struct input_info *our_inputs;
+	const struct output_info *our_outputs;
+	struct pubkey remote_funding_pubkey;
 };
 
 /* There's nothing permanent in an unconfirmed transaction */
@@ -150,7 +159,7 @@ void json_add_uncommitted_channel(struct json_stream *response,
 	}
 
 	/* These should never fail. */
-	if (amount_sat_to_msat(&total, uc->fc->funding)
+	if (amount_sat_to_msat(&total, uc->fc->opener_funding)
 	    && amount_msat_sub(&ours, total, uc->fc->push)) {
 		json_add_amount_msat_compat(response, ours,
 					    "msatoshi_to_us", "to_us_msat");
@@ -169,8 +178,10 @@ wallet_commit_channel(struct lightningd *ld,
 		      struct bitcoin_signature *remote_commit_sig,
 		      const struct bitcoin_txid *funding_txid,
 		      u16 funding_outnum,
-		      struct amount_sat funding,
+		      struct amount_sat total_funding,
+		      struct amount_sat local_funding,
 		      struct amount_msat push,
+		      enum side opener,
 		      u8 channel_flags,
 		      struct channel_info *channel_info,
 		      u32 feerate,
@@ -187,17 +198,28 @@ wallet_commit_channel(struct lightningd *ld,
 		return NULL;
 	}
 
-	if (uc->fc) {
-		if (!amount_sat_sub_msat(&our_msat, funding, push)) {
+	if (opener == LOCAL) {
+		if (!amount_sat_sub_msat(&our_msat, local_funding, push)) {
 			log_broken(uc->log, "push %s exceeds funding %s",
 				   type_to_string(tmpctx, struct amount_msat,
 						  &push),
 				   type_to_string(tmpctx, struct amount_sat,
-						  &funding));
+						  &local_funding));
 			return NULL;
 		}
-	} else
-		our_msat = push;
+	} else {
+		if (!amount_msat_add_sat(&our_msat, push, local_funding)) {
+			log_broken(uc->log, "push %s exceeds funding %s",
+				   type_to_string(tmpctx, struct amount_msat,
+						  &push),
+				   type_to_string(tmpctx, struct amount_sat,
+						  &local_funding));
+			return NULL;
+		}
+	}
+	
+	/* Check that we're still in bounds */
+	assert(amount_msat_less_eq_sat(our_msat, total_funding));
 
 	/* Feerates begin identical. */
 	channel_info->feerate_per_kw[LOCAL]
@@ -210,7 +232,7 @@ wallet_commit_channel(struct lightningd *ld,
 	channel = new_channel(uc->peer, uc->dbid,
 			      NULL, /* No shachain yet */
 			      CHANNELD_AWAITING_LOCKIN,
-			      uc->fc ? LOCAL : REMOTE,
+			      opener,
 			      uc->log,
 			      take(uc->transient_billboard),
 			      channel_flags,
@@ -219,7 +241,7 @@ wallet_commit_channel(struct lightningd *ld,
 			      1, 1, 0,
 			      funding_txid,
 			      funding_outnum,
-			      funding,
+			      total_funding,
 			      push,
 			      false, /* !remote_funding_locked */
 			      NULL, /* no scid yet */
@@ -463,7 +485,7 @@ static bool compose_and_broadcast_tx(struct lightningd *ld,
 	msg = wire_sync_read(fc, ld->hsm_fd);
 	if (!fromwire_hsm_sign_funding_reply(tmpctx, msg, &fundingtx))
 		fatal("HSM gave bad sign_funding_reply %s",
-		      tal_hex(msg, resp));
+		      tal_hex(msg, msg));
 
 	/* Extract the change output and add it to the DB */
 	wallet_extract_owned_outputs(ld->wallet, fundingtx, NULL, &change);
@@ -543,8 +565,10 @@ static void opening_funder_finished(struct subd *openingd, const u8 *resp,
 					&remote_commit_sig,
 					&funding_txid,
 					funding_txout,
-					fc->funding,
+					fc->opener_funding,
+					fc->opener_funding,
 					fc->push,
+					LOCAL,
 					fc->channel_flags,
 					&channel_info,
 					feerate,
@@ -603,8 +627,7 @@ static struct output_info *build_outputs(const tal_t *ctx,
 
 	changekey = tal(tmpctx, struct pubkey);
 	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
-		status_failed(STATUS_FAIL_MASTER_IO,
-			      "Bad change key %u", change_keyindex);
+		fatal("Error deriving change key %u", change_keyindex);
 
 	output.satoshis = change;
 	output.script = scriptpubkey_p2wpkh(&output, changekey);
@@ -658,23 +681,25 @@ static void accepter_select_coins(struct subd *openingd,
 				  struct uncommitted_channel *uc)
 {
 	struct wallet *w = openingd->ld->wallet;
-
-	struct amount_sat our_funding, our_change,
-			  max_avail_sat, opener_funding;
+	
+	struct amount_sat max_avail_sat;
 	u16 contrib_count, max_allowed_inputs;
-	const struct utxo **utxos;
-	struct input_info *our_inputs;
-	struct output_info *our_outputs;
+	struct funding_channel *fc = uc->fc;
 
 	u32 change_keyindex;
 
+	// TODO: Build uc->fc object!!
+
 	if (!fromwire_opening_dual_open_started(msg,
-		                                &opener_funding,
-						&contrib_count))
+		                                &fc->opener_funding,
+						&contrib_count,
+						&fc->channel_flags,
+						&fc->push)) {
 		log_broken(uc->log, "bad OPENING_DUAL_OPEN_STARTED %s",
 			   tal_hex(msg, msg));
 		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_OPEN_STARTED");
 		goto failed;
+	}
 
 	/**
 	 * FIXME: Fill in with bolt info when merged
@@ -695,33 +720,40 @@ static void accepter_select_coins(struct subd *openingd,
 	// - send max_avail_sat, **node_id, their funding amount.
 
 	/* for now, we attempt to make a balanced channel */
-	if (amount_sat_greater_eq(max_avail_sat, opener_funding))
-		our_funding = opener_funding;
+	if (amount_sat_greater_eq(max_avail_sat, fc->opener_funding))
+		fc->accepter_funding = fc->opener_funding;
 	else
-		our_funding = max_avail_sat;
+		fc->accepter_funding = max_avail_sat;
 
 	/* obfuscate our funding availability, a wee bit */
 	// TODO: remove this after hook is implemented
 	if (pseudorand(7) % 7)
-		our_funding.satoshis = our_funding.satoshis * pseudorand(100) / 100; /* Raw: value set */
+		fc->accepter_funding.satoshis =
+			fc->accepter_funding.satoshis * pseudorand(100) / 100; /* Raw: value set */
 
-	utxos = wallet_select_coins(tmpctx, w, our_funding, 0, 0, UINT32_MAX,
-				    NO_PAY, NULL, &our_change);
+	fc->utxos = wallet_select_coins(fc, w,
+			                fc->accepter_funding,
+				        0, 0, UINT32_MAX,
+				        NO_PAY, NULL,
+				        &fc->local_change);
 
-	if (!utxos)
-		our_funding = AMOUNT_SAT(0);
+	if (!fc->utxos)
+		fc->accepter_funding = AMOUNT_SAT(0);
 
 	change_keyindex = wallet_get_newindex(openingd->ld);
 
-	utxos_to_inputs(tmpctx, w, utxos, &our_inputs);
-	our_outputs = build_outputs(tmpctx,
-			            w->bip32_base,
-				    change_keyindex, our_change);
+	utxos_to_inputs(fc, w, fc->utxos, &fc->our_inputs);
+	fc->our_outputs = build_outputs(tmpctx,
+			                w->bip32_base,
+				        change_keyindex,
+				        fc->local_change);
 
-	msg = towire_opening_dual_open_continue(tmpctx, false,
-						our_funding,
-						our_inputs,
-						our_outputs);
+	// TODO: fancy way to mark UTXO's as .. something??
+
+	msg = towire_opening_dual_open_continue(fc, false,
+						fc->accepter_funding,
+						fc->our_inputs,
+						fc->our_outputs);
 	subd_send_msg(openingd, take(msg));
 	return;
 failed:
@@ -752,7 +784,146 @@ static void accepter_broadcast_failed_or_succeeded(struct channel *channel,
 	tal_free(fc->uc);
 }
 
-static void opening_fundee2_finished(struct subd *openingd,
+static void opening_funder_compose_rcvd(struct subd *openingd,
+					const u8 *reply,
+					struct uncommitted_channel *uc)
+{
+	const u8 *msg;
+	struct witness_stack *our_witnesses;
+	struct input_info *their_inputs;
+	struct output_info *their_outputs;
+	struct funding_channel *fc = uc->fc;
+
+	if (!fromwire_opening_dual_accepted(fc, reply,
+					    &fc->remote_funding_pubkey,
+					    &their_inputs,
+					    &their_outputs)) {
+		log_broken(uc->log, "bad OPENING_DUAL_ACCEPTED %s",
+			   tal_hex(reply, reply));
+		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_ACCEPTED");
+		goto failed;
+	}
+
+	// TODO: check that their inputs are actually on the blockchain.
+	// and that they're segwit inputs!! << the important part
+	
+	/* FIXME: update with BOLT ref when included
+	 * - MUST set `witness` to the serialized witness data for each of its
+	 *   inputs, in funding transaction order. FIXME: link to funding tx order
+         */
+	msg = towire_hsm_dual_funding_sigs(fc,
+					   fc->utxos,
+					   fc->feerate_funding,
+					   fc->opener_funding,
+					   fc->accepter_funding,
+					   their_inputs,
+					   fc->our_inputs,
+					   their_outputs,
+					   fc->our_outputs,
+					   &uc->local_funding_pubkey,
+					   &fc->remote_funding_pubkey);
+
+	wire_sync_write(openingd->ld->hsm_fd, take(msg));
+	msg = wire_sync_read(fc, openingd->ld->hsm_fd);
+	if (!fromwire_hsm_dual_funding_sigs_reply(msg, msg, &our_witnesses))
+		fatal("HSM gave bad dual_funding_sigs reply %s",
+		      tal_hex(msg, msg));
+
+	/* Send the signature and witness data back to openingd */
+	msg = towire_opening_dual_accepted_reply(fc);
+	subd_send_msg(openingd, take(msg));
+
+	tal_free(fc->utxos);
+	return;
+
+failed:
+	subd_release_channel(openingd, uc);
+	uc->openingd = NULL;
+	/* Frees fc too, and tmpctx */
+	tal_free(uc);
+}
+
+static void opening_dual_commitment_secured(struct subd *openingd,
+					    const u8 *reply,
+					    const int *fds,
+					    struct uncommitted_channel *uc)
+{
+	struct channel_info channel_info;
+	struct bitcoin_txid funding_txid;
+	u16 funding_txout;
+	struct bitcoin_signature remote_commit_sig;
+	struct bitcoin_tx *local_commit;
+	u32 feerate, feerate_funding;
+	struct channel *channel;
+	struct lightningd *ld = openingd->ld;
+	u8 *remote_upfront_shutdown_script;
+	struct per_peer_state *pps;
+	struct witness_stack *remote_witnesses;
+	struct amount_sat total_funding;
+	struct funding_channel *fc = uc->fc;
+
+	/* This is a new channel_info.their_config so set its ID to 0 */
+	channel_info.their_config.id = 0;
+
+	if (!fromwire_opening_dual_funding_signed(reply, reply,
+						  &pps,
+						  &local_commit,
+						  &remote_commit_sig,
+						  &remote_witnesses,
+						  &channel_info.their_config,
+						  &channel_info.theirbase.revocation,
+						  &channel_info.theirbase.payment,
+						  &channel_info.theirbase.htlc,
+						  &channel_info.theirbase.delayed_payment,
+						  &channel_info.remote_per_commit,
+						  &channel_info.remote_fundingkey,
+						  &funding_txid,
+						  &funding_txout,
+						  &feerate,
+						  &feerate_funding,
+						  &uc->our_config.channel_reserve,
+						  &remote_upfront_shutdown_script)) {
+		log_broken(uc->log,
+			   "bad OPENING_DUAL_FUNDING_SIGNED %s",
+			   tal_hex(reply, reply));
+		goto cleanup;
+	}
+	per_peer_state_set_fds_arr(pps, fds);
+
+	log_debug(ld->log,
+		  "%s", type_to_string(tmpctx, struct pubkey,
+				       &channel_info.remote_per_commit));
+
+	/* Steals fields from uc */
+	channel = wallet_commit_channel(ld, uc,
+					local_commit,
+					&remote_commit_sig,
+					&funding_txid,
+					funding_txout,
+				 	total_funding,
+					fc->accepter_funding,
+					fc->push,
+					REMOTE,
+					fc->channel_flags,
+					&channel_info,
+					feerate,
+					remote_upfront_shutdown_script);
+	if (!channel) {
+		log_broken(uc->log,
+			   "Key generation failure");
+		goto cleanup;
+	}
+
+	// 1: sign the funding tx for us
+	// 2: save the funding tx (with all sigs)
+	// 4: return our witness stack to openingd
+
+cleanup:
+	// TODO: the rest of this
+	tal_free(uc->fc);
+}
+
+static void opening_dual_fundee_finished(struct subd *openingd,
 				     const u8 *reply,
 				     const int *fds,
 				     struct uncommitted_channel *uc)
@@ -764,13 +935,17 @@ static void opening_fundee2_finished(struct subd *openingd,
 
 	assert(tal_count(fds) == 2);
 
-	if (!fromwire_opening_fundee2(tmpctx, reply,
-				     &pps)) {
-		log_broken(uc->log, "bad OPENING_FUNDEE2 %s",
+	if (!fromwire_opening_dual_funding_completed(reply, reply,
+				     		     &pps)) {
+		log_broken(uc->log, "bad OPENING_DUAL_FUNDING_SIGNED %s",
 			   tal_hex(reply, reply));
-		uncommitted_channel_disconnect(uc, "bad OPENING_FUNDEE2");
+		// TODO: fix this. we're not longer at 'uncommitted' .. sort of?
+		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_FUNDING_SIGNED");
 		goto failed;
 	}
+
+	// TODO: where does the funding_tx come from??
+	// A: We should be able to pull it from the database!
 
 	/* Send it out and watch for confirms. */
 	broadcast_tx(ld->topology, channel, fundingtx, accepter_broadcast_failed_or_succeeded);
@@ -862,7 +1037,9 @@ static void opening_fundee_finished(struct subd *openingd,
 					&funding_txid,
 					funding_outnum,
 					funding,
+					AMOUNT_SAT(0),
 					push,
+					REMOTE,
 					channel_flags,
 					&channel_info,
 					feerate,
@@ -1233,17 +1410,35 @@ static unsigned int openingd_msg(struct subd *openingd,
 		return 0;
 
 #ifdef EXPERIMENTAL_FEATURES
-	case WIRE_OPENING_FUNDEE2:
-		if (tal_count(fds) != 2)
-		    return 2;
-		opening_fundee2_finished(openingd, msg, fds, uc);
-		return 0;
-#endif /* EXPERIMENTAL_FEATURES */
-
 	case WIRE_OPENING_DUAL_OPEN_STARTED:
 		accepter_select_coins(openingd, msg, fds, uc);
 		return 0;
 
+	case WIRE_OPENING_DUAL_ACCEPTED:
+		if (!uc->fc) {
+			log_broken(openingd->log, "Unexpected DUAL_ACCEPTED %s",
+				   tal_hex(tmpctx, msg));
+			tal_free(openingd);
+			return 0;
+		}
+		opening_funder_compose_rcvd(openingd, msg, uc);
+		return 0;
+
+	case WIRE_OPENING_DUAL_FUNDING_SIGNED:
+		if (!uc->fc) {
+			log_broken(openingd->log, "Unexpected DUAL_FUNDING_SIGNED %s",
+				   tal_hex(tmpctx, msg));
+			tal_free(openingd);
+			return 0;
+		}
+		opening_dual_commitment_secured(openingd, msg, fds, uc);		
+		return 0;
+	case WIRE_OPENING_DUAL_FUNDING_COMPLETED:
+		if (tal_count(fds) != 2)
+			return 2;
+		opening_dual_fundee_finished(openingd, msg, fds, uc);
+		return 0;
+#endif /* EXPERIMENTAL_FEATURES */
 	/* We send these! */
 	case WIRE_OPENING_INIT:
 	case WIRE_OPENING_FUNDER:
@@ -1253,6 +1448,9 @@ static unsigned int openingd_msg(struct subd *openingd,
 	case WIRE_OPENING_GOT_OFFER_REPLY:
 	case WIRE_OPENING_DEV_MEMLEAK:
 	case WIRE_OPENING_DUAL_OPEN_CONTINUE:
+	case WIRE_OPENING_DUAL_ACCEPTED_REPLY:
+	case WIRE_OPENING_DUAL_FUNDING_SIGNED_REPLY:
+	case WIRE_OPENING_DUAL_FAILED:
 	/* Replies never get here */
 	case WIRE_OPENING_DEV_MEMLEAK_REPLY:
 		break;
@@ -1476,7 +1674,7 @@ static struct command_result *json_fund_channel_start(struct command *cmd,
 				    type_to_string(tmpctx, struct amount_sat,
 						   &max_funding_satoshi));
 
-	fc->funding = *amount;
+	fc->opener_funding = *amount;
 	if (!feerate_per_kw) {
 		feerate_per_kw = tal(cmd, u32);
 		*feerate_per_kw = opening_feerate(cmd->ld->topology);
@@ -1624,7 +1822,7 @@ static struct command_result *json_fund_channel(struct command *cmd,
 	assert(!amount_sat_greater(fc->wtx->amount, max_funding_satoshi));
 	/* Stash total amount in fc as well, as externally funded
 	 * channels don't have a wtx */
-	fc->funding = fc->wtx->amount;
+	fc->opener_funding = fc->wtx->amount;
 
 	peer->uncommitted_channel->fc = tal_steal(peer->uncommitted_channel, fc);
 	fc->uc = peer->uncommitted_channel;

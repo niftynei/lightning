@@ -131,16 +131,16 @@ opening_fundee,,our_channel_reserve_satoshis,struct amount_sat
 opening_fundee,,shutdown_len,u16
 opening_fundee,,shutdown_scriptpubkey,shutdown_len*u8
 
-opening_fundee2,6203
-opening_fundee2,,pps,struct per_peer_state
-# TODO: flesh this out!
-
 # openingd->master: they initiated a dual-fundable channel
+# 1/7
 opening_dual_open_started,6200
 opening_dual_open_started,,their_funding,struct amount_sat
 opening_dual_open_started,,contrib_count,u16
+opening_dual_open_started,,channel_flags,u8
+opening_dual_open_started,,push_msat,struct amount_msat
 
 # master->openingd: what we'd like to put into the channel (or a fail)
+# 2/7
 #include <wire/gen_peer_wire.h>
 opening_dual_open_continue,6201
 # if there's a problem trying to open this, we should fail
@@ -150,6 +150,59 @@ opening_dual_open_continue,,num_our_inputs,u16
 opening_dual_open_continue,,our_inputs,num_our_inputs*struct input_info
 opening_dual_open_continue,,num_our_outputs,u16
 opening_dual_open_continue,,our_outputs,num_our_outputs*struct output_info
+
+# openingd->master: their inputs + outputs
+# 3/7
+opening_dual_accepted,6202
+opening_dual_accepted,,remote_funding_pubkey,struct pubkey
+opening_dual_accepted,,num_their_inputs,u16
+opening_dual_accepted,,their_inputs,num_their_inputs*struct input_info
+opening_dual_accepted,,num_their_outputs,u16
+opening_dual_accepted,,their_outputs,num_their_outputs*struct output_info
+
+# master->openingd: continue, opening.
+# 4/7
+opening_dual_accepted_reply,6203
+
+# openingd->master: their witness_stack, and signatures
+# 5/7
+opening_dual_funding_signed,6204
+opening_dual_funding_signed,,pps,struct per_peer_state
+opening_dual_funding_signed,,first_commit,struct bitcoin_tx
+opening_dual_funding_signed,,first_commit_sig,struct bitcoin_signature
+opening_dual_funding_signed,,num_witnesses,u16
+opening_dual_funding_signed,,witness_stack,num_witnesses*struct witness_stack
+opening_dual_funding_signed,,their_config,struct channel_config
+opening_dual_funding_signed,,revocation_basepoint,struct pubkey
+opening_dual_funding_signed,,payment_basepoint,struct pubkey
+opening_dual_funding_signed,,htlc_basepoint,struct pubkey
+opening_dual_funding_signed,,delayed_payment_basepoint,struct pubkey
+opening_dual_funding_signed,,their_per_commit_point,struct pubkey
+opening_dual_funding_signed,,remote_fundingkey,struct pubkey
+opening_dual_funding_signed,,funding_txid,struct bitcoin_txid
+opening_dual_funding_signed,,funding_txout,u16
+opening_dual_funding_signed,,feerate_per_kw,u32
+opening_dual_funding_signed,,feerate_per_kw_funding,u32
+opening_dual_funding_signed,,our_channel_reserve_satoshis,struct amount_sat
+opening_dual_funding_signed,,shutdown_len,u16
+opening_dual_funding_signed,,shutdown_scriptpubkey,shutdown_len*u8
+
+# master->openingd: 
+# 6/7
+opening_dual_funding_signed_reply,6205
+opening_dual_funding_signed_reply,,num_witnesses,u16
+opening_dual_funding_signed_reply,,witness_stack,num_witnesses*struct witness_stack
+
+# openingd->master:
+# 7/7
+opening_dual_funding_completed,6206
+opening_dual_funding_completed,,pps,struct per_peer_state
+
+# master->openingd: let peer know that something went wrong, 
+#                   and fail the channel establishment
+opening_dual_failed,6210
+opening_dual_failed,,reason,wirestring
+opening_dual_failed,,is_err,bool
 
 # master -> openingd: do you have a memleak?
 opening_dev_memleak,6033

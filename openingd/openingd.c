@@ -55,6 +55,17 @@
 
 #define REQUIRED_CONFIRM_HEIGHT 1
 
+/* Information we need for v2 open channel negotiations */
+struct dual_funding_state {
+	u16 contrib_count;
+	struct bitcoin_blkid chain_hash;
+	struct amount_msat local_msat;
+	
+	struct input_info *our_inputs, *their_inputs;
+	struct output_info *our_outputs, *their_outputs;
+	struct amount_sat our_funding;
+};
+
 /* Global state structure.  This is only for the one specific peer and channel */
 struct state {
 	struct per_peer_state *pps;
@@ -78,10 +89,6 @@ struct state {
 	/* Information we need between funding_start and funding_complete */
 	struct basepoints their_points;
 	struct pubkey their_funding_pubkey;
-
-	/* Information we need for dual-funding rounds */
-	u16 contrib_count;
-	struct bitcoin_blkid chain_hash;
 
 	/* hsmd gives us our first per-commitment point, and peer tells us
 	 * theirs */
@@ -112,6 +119,9 @@ struct state {
 
 	/* Which chain we're on, so we can check/set `chain_hash` fields */
 	const struct chainparams *chainparams;
+
+	/* Information we need for opening v2 channels */
+	struct dual_funding_state *df;
 };
 
 static const u8 *dev_upfront_shutdown_script(const tal_t *ctx)
@@ -645,14 +655,14 @@ static u8 *funder_channel_start(struct state *state,
 }
 
 static bool funder_finalize_channel_setup(struct state *state,
-			struct amount_msat local_msat,
-			struct bitcoin_signature *sig,
-			struct bitcoin_tx **tx)
+					  struct amount_msat local_msat,
+				          struct bitcoin_signature *sig,
+					  struct bitcoin_tx **tx)
 {
 	u8 *msg;
 	struct channel_id id_in;
 	const u8 *wscript;
-	char* err_reason;
+	char *err_reason;
 
 	/*~ Now we can initialize the `struct channel`.  This represents
 	 * the current channel state and is how we can generate the current
@@ -1575,6 +1585,7 @@ static u8 *fundee_channel(struct state *state, const u8 *open_channel_msg)
 }
 
 #if EXPERIMENTAL_FEATURES
+/*
 struct input_check {
 	struct input_info **inputs;
 	size_t index;
@@ -1582,7 +1593,6 @@ struct input_check {
 	struct amount_sat total_in;
 };
 
-/*
 static void check_next_input(struct bitcoind *bitcoind,
 		       const struct bitcoin_tx_output *txout,
 		       void *arg)
@@ -1647,8 +1657,7 @@ static bool check_remote_inputs(struct input_info **remote_inputs,
 			               type_to_string(tmpctx, struct amount_sat,
 					              input_funding));
 		/** TODO: add BOLT reference when merged
-		 * - MUST ensure each `input_info` refers to a non-malleable (segwit) UTXO.
-		 */
+		 * - MUST ensure each `input_info` refers to a non-malleable (segwit) UTXO. */
 		/* P2SH wrapped inputs send the redeemscript, which we can check */
 		if (remote_inputs[i]->script) {
 			if (!is_p2wpkh(remote_inputs[i]->script, NULL)
@@ -1759,7 +1768,7 @@ static u8 *fundee_channel2(struct state *state,
 	 *     DER-encoded compressed secp256k1 pubkeys.
 	 */
 	if (!fromwire_open_channel2(tmpctx, msg,
-				    &state->chain_hash,
+				    &state->df->chain_hash,
 				    &state->channel_id,
 				    &state->funding,
 				    &state->push_msat,
@@ -1768,7 +1777,7 @@ static u8 *fundee_channel2(struct state *state,
 				    &state->remoteconf.htlc_minimum,
 				    &state->feerate_per_kw,
 				    &state->feerate_per_kw_funding,
-				    &state->contrib_count,
+				    &state->df->contrib_count,
 				    &state->remoteconf.to_self_delay,
 				    &state->remoteconf.max_accepted_htlcs,
 				    &state->their_funding_pubkey,
@@ -1783,7 +1792,7 @@ static u8 *fundee_channel2(struct state *state,
 			    "Bad open_channel2 %s",
 			    tal_hex(msg, msg));
 
-	if (!check_open_channel_state(state, &state->chain_hash))
+	if (!check_open_channel_state(state, &state->df->chain_hash))
 		return NULL;
 
 	/* Check the proposed commitment transaction feerate */
@@ -1807,28 +1816,21 @@ static u8 *fundee_channel2(struct state *state,
 
 	return towire_opening_dual_open_started(tmpctx,
 						state->funding,
-						state->contrib_count);
+						state->df->contrib_count,
+						channel_flags, state->push_msat);
 }
 
-static u8 *duel_accepted(struct state *state,
-			 bool fail_open,
-			 struct amount_sat our_funding,
-			 struct input_info **our_inputs,
-			 struct output_info **our_outputs)
+static u8 *accept_dual_fund_request(struct state *state,
+				    bool fail_open,
+				    struct amount_sat our_funding,
+				    struct input_info *our_inputs,
+				    struct output_info *our_outputs)
 {
 	struct channel_id id_in;
-	struct input_info *remote_inputs;
-	struct output_info *remote_outputs;
-	struct bitcoin_tx *local_commit, *remote_commit, *funding_tx;
-	secp256k1_ecdsa_signature *htlc_sigs;
-	struct witness_stack *witness_stack, *our_witnesses;
-	struct bitcoin_signature their_sig, sig;
+	struct bitcoin_tx *funding_tx;
 	struct amount_sat opener_funding;
-	struct amount_msat local_msat;
 
-	const u8 *wscript;
 	u8 *msg;
-	char* err_reason;
 
 	/* If master has decided we don't want to open this channel,
 	 * we'll fail it here. */
@@ -1836,6 +1838,9 @@ static u8 *duel_accepted(struct state *state,
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Unable to complete accept");
+
+	/* Let's save our funding to the state object */
+	state->df->our_funding = our_funding;
 
 	/* OK, we accept! */
 	msg = towire_accept_channel2(state, &state->channel_id,
@@ -1868,39 +1873,37 @@ static u8 *duel_accepted(struct state *state,
 	 * inputs and outputs they've selected. */
 	if (!fromwire_funding_compose(tmpctx, msg, &id_in, 
 				      &state->remoteconf.channel_reserve,
-				      &remote_inputs, &remote_outputs))
+				      &state->df->their_inputs,
+				      &state->df->their_outputs))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Parsing received funding_compose");
 
 	check_channel_id(state, &id_in, &state->channel_id);
 
+	/* Prelim check that their inputs outputs are sensible. We'll actually
+	 * look all of these up in master after the break */
 	if (!check_remote_input_outputs(state, state,
-					&remote_inputs, &remote_outputs,
-					state->contrib_count))
+					&state->df->their_inputs,
+					&state->df->their_outputs,
+					state->df->contrib_count))
 		return NULL;
-
-	// FIXME: break this over to master
-	/*
-	if (tal_count(remote_inputs))
-		// FIXME: split this method in half here...
-		// we're gonna need to stash all of the state somewhere
-		verify_input_scripts(state, remote_inputs);
-	*/
 
 	/* Unnecessary but helps make it more clear what's going on, I think */
 	opener_funding = state->funding;
+	state->df->our_inputs = our_inputs;
+	state->df->our_outputs = our_outputs;
 
-	/* Build the funding transaction, so we can confirm their sigs and sign with ours*/
+	/* Build the funding transaction, confirming totals for reserve etc */
 	funding_tx = dual_funding_funding_tx(state,
 					     &state->funding_txout,
 				   	     state->feerate_per_kw_funding,
 					     &state->funding,
 					     &opener_funding, our_funding,
-					     (const struct input_info **)&remote_inputs,
-					     (const struct input_info **)our_inputs,
-					     (const struct output_info **)&remote_outputs,
-					     (const struct output_info **)our_outputs,
+					     &state->df->their_inputs, 
+					     &state->df->our_inputs,
+					     &state->df->their_outputs,
+					     &state->df->our_outputs,
 					     &state->our_funding_pubkey,
 					     &state->their_funding_pubkey);
 					     
@@ -1929,7 +1932,7 @@ static u8 *duel_accepted(struct state *state,
 	if (!check_config_bounds_reserves_required(state, &state->remoteconf, false))
 		return NULL;
 	
-	if (!amount_msat_add_sat(&local_msat, state->push_msat, our_funding))
+	if (!amount_msat_add_sat(&state->df->local_msat, state->push_msat, our_funding))
 		status_failed(STATUS_FAIL_INTERNAL_ERROR,
 			      "Overflow in adding push_msat with our funding %s + %s",
 			      type_to_string(tmpctx, struct amount_msat,
@@ -1937,34 +1940,37 @@ static u8 *duel_accepted(struct state *state,
 			      type_to_string(tmpctx, struct amount_sat,
 			                     &our_funding));
 
-	state->channel = new_initial_channel(state,
-					     &state->chain_hash,
-					     &state->funding_txid,
-					     state->funding_txout,
-					     state->minimum_depth,
-					     state->funding,
-					     local_msat,
-					     state->feerate_per_kw,
-					     &state->localconf,
-					     &state->remoteconf,
-					     &state->our_points,
-					     &state->their_points,
-					     &state->our_funding_pubkey,
-					     &state->their_funding_pubkey,
-					     !amount_sat_eq(our_funding, AMOUNT_SAT(0)),
-					     REMOTE);
+	/*~ Here we split to master, after doing as many sanity checks as possible.
+	 * We want master to save our utxo set to the database and generate the rest
+	 * of the signatures/hsmd pieces that we'll need to complete this open.
+	 *
+	 * Note that if anything 'goes south' after this, we'll need to let master
+	 * know so they can "unreserve" the utxo's we saved for this and, if
+	 * necessary, do some defensive utxo spending.
+	 */
+	const struct input_info *their_inputs = state->df->their_inputs;
+	const struct output_info *their_outputs = state->df->their_outputs;
+	return towire_opening_dual_accepted(tmpctx,
+					    &state->their_funding_pubkey,
+					    their_inputs,
+					    their_outputs);
+}
 
-	/* We don't expect this to fail, but it does do some additional
-	 * internal sanity checks. */
-	if (!state->channel)
-		peer_failed(state->pps,
-			    &state->channel_id,
-			    "We could not create channel with given config");
+static u8 *continue_dual_fund_request(struct state *state)
+{
+	struct channel_id id_in;
+	struct bitcoin_signature their_sig, our_sig;
+	struct bitcoin_tx *local_commit, *remote_commit;
+	secp256k1_ecdsa_signature *htlc_sigs;
+	const struct witness_stack *remote_witnesses;
+	const u8 *wscript;
+	u8 *msg;
+	char* err_reason;
 
 	msg = towire_funding_compose(state, &state->channel_id,
 				     state->localconf.channel_reserve,
-				     (const struct input_info *)our_inputs,
-				     (const struct output_info *)our_outputs);
+				     state->df->our_inputs,
+				     state->df->our_outputs);
 
 	sync_crypto_write(state->pps, take(msg));
 
@@ -1986,6 +1992,30 @@ static u8 *duel_accepted(struct state *state,
 	peer_billboard(false,
 		       "Incoming channel: commitment_signed received, composing funding tx");
 
+	state->channel = new_initial_channel(state,
+					     &state->df->chain_hash,
+					     &state->funding_txid,
+					     state->funding_txout,
+					     state->minimum_depth,
+					     state->funding,
+					     state->df->local_msat,
+					     state->feerate_per_kw,
+					     &state->localconf,
+					     &state->remoteconf,
+					     &state->our_points,
+					     &state->their_points,
+					     &state->our_funding_pubkey,
+					     &state->their_funding_pubkey,
+					     !amount_sat_eq(state->df->our_funding, AMOUNT_SAT(0)),
+					     REMOTE);
+
+	/* We don't expect this to fail, but it does do some additional
+	 * internal sanity checks. */
+	if (!state->channel)
+		peer_failed(state->pps,
+			    &state->channel_id,
+			    "We could not create channel with given config");
+
 	if (tal_count(htlc_sigs))
 		peer_failed(state->pps,
 			    &state->channel_id,
@@ -1995,6 +2025,7 @@ static u8 *duel_accepted(struct state *state,
 	  * derived channel_id as of now */
 	derive_channel_id(&state->channel_id,
 			  &state->funding_txid, state->funding_txout);
+
 	/* If this check fails, we know that they've derived a different funding
 	 * tx than we have */
 	check_channel_id(state, &id_in, &state->channel_id);
@@ -2002,10 +2033,9 @@ static u8 *duel_accepted(struct state *state,
 	/* We create *our* initial commitment transaction, and check the
 	 * signature they sent against that. */
 	local_commit = initial_channel_tx(state, &wscript, state->channel,
-				&state->first_per_commitment_point[LOCAL],
-				LOCAL, &err_reason);
+					  &state->first_per_commitment_point[LOCAL],
+					  LOCAL, &err_reason);
 
-	/* This shouldn't happen either, AFAICT. */
 	if (!local_commit) {
 		negotiation_failed(state, false,
 				   "Could not meet our fees and reserve: %s", err_reason);
@@ -2022,31 +2052,31 @@ static u8 *duel_accepted(struct state *state,
 			    type_to_string(tmpctx, struct pubkey,
 					   &state->their_funding_pubkey));
 
-	/* FIXME: Perhaps we should have channeld generate this, so we
-	 * can't possibly send before channel committed to disk? */
+
+	/* OK, theirs looks good. Let's figure out what theirs is and send it. */
 	remote_commit = initial_channel_tx(state, &wscript, state->channel,
 					   &state->first_per_commitment_point[REMOTE],
 					   REMOTE, &err_reason);
+
 	if (!remote_commit) {
-		negotiation_failed(state, false,
+		negotiation_failed(state, true,
 				   "Could not meet their fees and reserve: %s", err_reason);
-		return NULL;
 	}
 
-	/* Make HSM sign it */
 	msg = towire_hsm_sign_remote_commitment_tx(NULL,
 						   remote_commit,
 						   &state->channel->funding_pubkey[REMOTE],
 						   state->channel->funding);
+
 	wire_sync_write(HSM_FD, take(msg));
 	msg = wire_sync_read(tmpctx, HSM_FD);
-	if (!fromwire_hsm_sign_tx_reply(msg, &sig))
-		status_failed(STATUS_FAIL_HSM_IO,
-			      "Bad sign_tx_reply %s", tal_hex(tmpctx, msg));
+	if (!fromwire_hsm_sign_tx_reply(msg, &our_sig))
+		status_failed(STATUS_FAIL_HSM_IO, "Bad sign_tx_reply %s",
+			      tal_hex(tmpctx, msg));
 
-	assert(sig.sighash_type == SIGHASH_ALL);
+	/* Now we send it */
 	msg = towire_commitment_signed(tmpctx, &state->channel_id,
-				       &sig.s, NULL);
+				       &our_sig.s, NULL);
 
 	sync_crypto_write(state->pps, take(msg));
 
@@ -2058,46 +2088,48 @@ static u8 *duel_accepted(struct state *state,
 	if (!msg)
 		return NULL;
 
-
 	peer_billboard(false,
 		       "Incoming channel: commitment_signed sent, waiting for funding_signed2");
-
 	
-	if (!fromwire_funding_signed2(state, msg, &id_in, &witness_stack))
+	if (!fromwire_funding_signed2(state, msg, &id_in, 
+				      (struct witness_stack **)&remote_witnesses))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Bad funding_signed2 %s", tal_hex(msg, msg));
 			
 	check_channel_id(state, &id_in, &state->channel_id);
 
-	if (tal_count(witness_stack) != tal_count(remote_inputs))
+	if (tal_count(remote_witnesses) != tal_count(state->df->their_inputs))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Received %ld witnesses for %ld inputs", 
-			    tal_count(witness_stack), tal_count(remote_inputs));
+			    tal_count(remote_witnesses),
+			    tal_count(state->df->their_inputs));
 
-	// FIXME: do something with this?
-	const struct utxo **utxos = NULL;
+	return towire_opening_dual_funding_signed(tmpctx,
+						  state->pps,
+						  local_commit,
+						  &their_sig,
+						  remote_witnesses,
+						  &state->remoteconf,
+					          &state->their_points.revocation,
+					          &state->their_points.payment,
+					          &state->their_points.htlc,
+					          &state->their_points.delayed_payment,
+					          &state->first_per_commitment_point[REMOTE],
+					          &state->their_funding_pubkey,
+					          &state->funding_txid,
+					          state->funding_txout,
+						  state->feerate_per_kw,
+						  state->feerate_per_kw_funding,
+					          state->localconf.channel_reserve,
+					          state->remote_upfront_shutdown_script);
+}
 
-	/* FIXME: update with BOLT ref when included
-	 * - MUST set `witness` to the serialized witness data for each of its
-	 *   inputs, in funding transaction order. FIXME: link to funding tx order
-         */
-	msg = towire_hsm_dual_funding_sigs(NULL,
-					   utxos,
-				   	   state->feerate_per_kw_funding,
-					   opener_funding, our_funding,
-					   (const struct input_info *)remote_inputs,
-					   (const struct input_info *)our_inputs,
-					   (const struct output_info *)remote_outputs,
-					   (const struct output_info *)our_outputs,
-					   &state->our_funding_pubkey,
-					   &state->their_funding_pubkey);
-	wire_sync_write(HSM_FD, take(msg));
-	msg = wire_sync_read(tmpctx, HSM_FD);
-	if (!fromwire_hsm_dual_funding_sigs_reply(msg, msg, &our_witnesses))
-		status_failed(STATUS_FAIL_HSM_IO,
-			      "Bad dual_funding_sigs reply %s", tal_hex(tmpctx, msg));
+static u8 *finish_dual_fund_request(struct state *state,
+				    struct witness_stack *our_witnesses)
+{
+	u8 *msg;
 
 	msg = towire_funding_signed2(tmpctx, &state->channel_id, our_witnesses);
 	sync_crypto_write(state->pps, take(msg));
@@ -2105,9 +2137,7 @@ static u8 *duel_accepted(struct state *state,
 	peer_billboard(false,
 		       "Incoming channel: funding_signed2 sent. Moving to broadcast tx");
 
-	tal_free(utxos);
-
-	return NULL;
+	return towire_opening_dual_funding_completed(tmpctx, state->pps);
 }
 #endif /* EXPERIMENTAL_FEATURES */
 
@@ -2256,6 +2286,7 @@ static u8 *handle_master_in(struct state *state)
 	bool fail_open;
 	struct input_info *our_inputs;
 	struct output_info *our_outputs;
+	struct witness_stack *our_witnesses;
 
 	switch (t) {
 	case WIRE_OPENING_FUNDER:
@@ -2309,12 +2340,25 @@ static u8 *handle_master_in(struct state *state)
 							 &our_inputs,
 					                 &our_outputs))
 			master_badmsg(WIRE_OPENING_FUNDER_START, msg);
-		// FIXME: is this the end of the funding negotiation?
-		return duel_accepted(state,
-				     fail_open,
-				     our_funding,
-				     &our_inputs,
-				     &our_outputs);
+		msg = accept_dual_fund_request(state, fail_open, 
+					       our_funding,
+					       our_inputs,
+					       our_outputs);
+		/* We want to keep openingd alive, since we're not done yet */
+		wire_sync_write(REQ_FD, take(msg));
+		return NULL;
+	case WIRE_OPENING_DUAL_ACCEPTED_REPLY:
+		if (!fromwire_opening_dual_accepted_reply(msg))
+			master_badmsg(WIRE_OPENING_DUAL_ACCEPTED_REPLY, msg);
+		return continue_dual_fund_request(state);
+	case WIRE_OPENING_DUAL_FUNDING_SIGNED_REPLY:
+		if (!fromwire_opening_dual_funding_signed_reply(msg, msg,
+								&our_witnesses))
+			master_badmsg(WIRE_OPENING_DUAL_FUNDING_SIGNED_REPLY, msg);
+		return finish_dual_fund_request(state, our_witnesses);
+	case WIRE_OPENING_DUAL_FAILED:
+		//TODO!!
+		return NULL;
 	case WIRE_OPENING_DEV_MEMLEAK:
 #if DEVELOPER
 		handle_dev_memleak(state, msg);
@@ -2325,11 +2369,13 @@ static u8 *handle_master_in(struct state *state)
 	case WIRE_OPENING_FUNDER_REPLY:
 	case WIRE_OPENING_FUNDER_START_REPLY:
 	case WIRE_OPENING_FUNDEE:
-	case WIRE_OPENING_FUNDEE2:
 	case WIRE_OPENING_FUNDER_FAILED:
 	case WIRE_OPENING_GOT_OFFER:
 	case WIRE_OPENING_GOT_OFFER_REPLY:
 	case WIRE_OPENING_DUAL_OPEN_STARTED:
+	case WIRE_OPENING_DUAL_ACCEPTED:
+	case WIRE_OPENING_DUAL_FUNDING_SIGNED:
+	case WIRE_OPENING_DUAL_FUNDING_COMPLETED:
 		break;
 	}
 
