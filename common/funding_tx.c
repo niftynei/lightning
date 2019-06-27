@@ -190,7 +190,8 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 					   struct output_info **opener_outputs,
 					   struct output_info **accepter_outputs,
 				           const struct pubkey *local_fundingkey,
-				           const struct pubkey *remote_fundingkey)
+				           const struct pubkey *remote_fundingkey,
+					   void ***input_map)
 {
 	size_t weight;	
 	struct amount_sat funding_tx_fee, opener_total_sat,
@@ -256,9 +257,6 @@ build_tx:
 
 	tx = bitcoin_tx(ctx, input_count, output_count);
 
-	add_inputs(tx, opener_inputs);
-	add_inputs(tx, accepter_inputs);
-
 	/* Add the funding output */
 	wscript = bitcoin_redeem_2of2(tx, local_fundingkey, remote_fundingkey);
 	SUPERVERBOSE("# funding witness script = %s\n",
@@ -278,7 +276,6 @@ build_tx:
 	add_outputs(tx, accepter_outputs, NULL);
 
 	permute_outputs(tx, NULL, map);
-	permute_inputs(tx, NULL);
 
 	for (i = 0; i < output_count; i++) {
 		if (map[i] == int2ptr(0)) {
@@ -286,6 +283,18 @@ build_tx:
 			break;
 		}
 	}
+
+	/* Note that hsmd depends on the opener's inputs
+	 * being added before the accepter's inputs */
+	add_inputs(tx, opener_inputs);
+	add_inputs(tx, accepter_inputs);
+
+	for (i = 0; i < input_count; i++) {
+		map[i] = int2ptr(i);
+	}
+	permute_inputs(tx, map);
+	if (input_map != NULL)
+		*input_map = (void **)&map;
 
 	assert(bitcoin_tx_check(tx));
 	return tx;
