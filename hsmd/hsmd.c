@@ -29,6 +29,7 @@
 #include <common/derive_basepoints.h>
 #include <common/funding_tx.h>
 #include <common/hash_u5.h>
+#include <common/htlc.h>
 #include <common/key_derive.h>
 #include <common/memleak.h>
 #include <common/node_id.h>
@@ -1412,36 +1413,35 @@ static void sign_all_inputs(struct bitcoin_tx *tx, struct utxo **utxos)
 }
 
 #ifdef EXPERIMENTAL_FEATURES
-static size_t find_input_index(struct wally_tx *wtx,
-			       const struct bitcoin_txid *txid,
-			       u32 outnum)
+static u8 **witness_stack_to_arr(struct witness_stack *stack)
 {
-	size_t i = 0;
-	for (i = 0; i < wtx->num_inputs; i++) {
-		struct wally_tx_input input = wtx->inputs[i];
-		if (memcmp(input.txhash, &txid, tal_bytelen(input.txhash)) == 0 &&
-				input.index == outnum)
-			return i;
+	u8 **witnesses;
+	size_t i;
+	witnesses = tal_arr(stack, u8 *, tal_count(stack->witness_element));
+
+	for (i = 0; i < tal_count(stack->witness_element); i++) {
+		witnesses[i] = stack->witness_element[i].witness;
 	}
-	return -1;
+
+	return witnesses;
 }
 
 static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 						   struct client *c,
 						   const u8 *msg_in)
 {
-	struct witness_stack **witnesses;
+	struct witness_stack **witnesses, *their_witnesses;
 	size_t i = 0;
 	struct bitcoin_tx *tx;
-	u32 feerate_kw_funding;
+	u32 feerate_kw_funding, offset;
 	struct pubkey local_pubkey, remote_pubkey;
 	struct amount_sat opener_funding, accepter_funding;
-	struct input_info **opener_inputs = tal(msg_in, struct input_info *);
-	struct input_info **accepter_inputs = tal(msg_in, struct input_info *);
-	struct output_info **opener_outputs = tal(msg_in, struct output_info *);
-	struct output_info **accepter_outputs = tal(msg_in, struct output_info *);
+	struct input_info *opener_inputs, *accepter_inputs;
+	struct output_info *opener_outputs, *accepter_outputs;
 	struct utxo **our_utxos;
 	struct amount_sat total_funding;
+	enum side opener;
+	void **input_map;
 	
 	if (!fromwire_hsm_dual_funding_sigs(tmpctx, 
 					    msg_in, 
@@ -1449,40 +1449,50 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 					    &feerate_kw_funding,
 					    &opener_funding,
 					    &accepter_funding,
-					    opener_inputs,
-					    accepter_inputs,
-					    opener_outputs,
-					    accepter_outputs,
+					    &opener_inputs,
+					    &accepter_inputs,
+					    &opener_outputs,
+					    &accepter_outputs,
 					    &local_pubkey,
-					    &remote_pubkey))
+					    &remote_pubkey,
+					    &their_witnesses,
+					    &opener))
 
 		return bad_req(conn, c, msg_in);
 
-	// let's figure out what we need to 'regenerate' the funding tx
 	tx = dual_funding_funding_tx(tmpctx,
 				     NULL,
 				     feerate_kw_funding,
 				     &total_funding,
 				     &opener_funding,
 				     accepter_funding,
-				     opener_inputs, accepter_inputs,
-				     opener_outputs, accepter_outputs,
+				     &opener_inputs, &accepter_inputs,
+				     &opener_outputs, &accepter_outputs,
 				     &local_pubkey,
-				     &remote_pubkey);
+				     &remote_pubkey,
+				     &input_map);
 	
+	/* For the input_map, the opener_inputs are added before the accepter's */
+	offset = opener == LOCAL ? 0 : tal_count(accepter_inputs) - 1;
 	witnesses = tal_arr(tmpctx, struct witness_stack *, tal_count(our_utxos));
 	for (i = 0; i < tal_count(our_utxos); i++) {
 		struct pubkey inkey;
 		const struct utxo *in = our_utxos[i];
 		struct witness_stack *stack = witnesses[i];
 		struct bitcoin_signature sig;
-		size_t input_index;	
 		u8 **utxo_witnesses;
+		size_t input_index;
 
-		input_index = find_input_index(tx->wtx, &in->txid, in->outnum);
+		input_index = ptr2int(input_map[i + offset]);
 		sign_input(tx, in, &inkey, &sig, input_index);
 
 		utxo_witnesses = bitcoin_witness_p2wpkh(tmpctx, &sig, &inkey);
+
+		/* Set witness on transaction */
+		bitcoin_tx_input_set_witness(tx,
+					     input_index,
+					     utxo_witnesses);
+
 		stack->witness_element = tal_arr(stack, struct witness_element, 2);
 		stack->witness_element[0].witness =
 			tal_dup_arr(stack, u8, utxo_witnesses[0],
@@ -1492,7 +1502,17 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 				    sizeof(utxo_witnesses[1]), 1);
 	}
 
-	return req_reply(conn, c, take(towire_hsm_dual_funding_sigs_reply(NULL, *witnesses)));
+	/* Go ahead and fill in all of the witness data for this,
+	 * while we've still got the input index map around */
+	offset = opener == REMOTE ? 0 : tal_count(accepter_inputs) - 1;
+	for (i = 0; i < tal_count(their_witnesses); i++) {
+		bitcoin_tx_input_set_witness(tx, ptr2int(input_map[i + offset]),
+				             witness_stack_to_arr(&their_witnesses[i]));
+	}
+
+	return req_reply(conn, c,
+			 take(towire_hsm_dual_funding_sigs_reply(NULL, *witnesses,
+								 (const struct bitcoin_tx *)tx)));
 }
 
 #endif /* EXPERIMENTAL_FEATURES */

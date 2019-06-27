@@ -47,10 +47,10 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 /**
  * funding_tx: create a P2WSH funding transaction for a channel.
  * @ctx: context to tal from.
- * @outnum: (out) txout (0 or 1) which is the funding output.
+ * @outnum: (out) txout which is the funding output.
  * @feerate_kw_funding: (in) feerate for the funding transaction
  * @total_funding: (out) total funding amount for this transaction
- * @opener_funding: (in) funding amount contributed by opener
+ * @opener_funding: (in/out) funding amount contributed by opener
  * @accepter_funding: (in) funding amount contributed by accepter
  * @opener_inputs: (in) inputs from the opener
  * @accepter_inputs: (in) inputs from the accepter
@@ -58,6 +58,7 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
  * @accepter_outputs: (in) outputs for the accepter
  * @local_fundingkey: (in) local key for 2of2 funding output.
  * @remote_fundingkey: (in) remote key for 2of2 funding output.
+ * @input_map: (out) ordering of inputs, after being sorted.
  */
 struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           u16 *outnum,
@@ -70,6 +71,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 					   struct output_info **opener_outputs,
 					   struct output_info **accepter_outputs,
 				           const struct pubkey *local_fundingkey,
-				           const struct pubkey *remote_fundingkey);
+				           const struct pubkey *remote_fundingkey,
+					   void ***input_map);
 #endif /* EXPERIMENTAL_FEATURES */
 #endif /* LIGHTNING_COMMON_FUNDING_TX_H */

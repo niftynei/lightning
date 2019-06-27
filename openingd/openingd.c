@@ -1905,7 +1905,8 @@ static u8 *accept_dual_fund_request(struct state *state,
 					     &state->df->their_outputs,
 					     &state->df->our_outputs,
 					     &state->our_funding_pubkey,
-					     &state->their_funding_pubkey);
+					     &state->their_funding_pubkey,
+					     NULL);
 					     
 	if (!funding_tx)
 		peer_failed(state->pps,

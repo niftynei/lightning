@@ -1066,7 +1066,7 @@ void wallet_transaction_add(struct wallet *w, const struct bitcoin_tx *tx,
 			    const u32 blockheight, const u32 txindex);
 
 /**
- * Annotate a transaction in the DB with its type and channel referemce.
+ * Annotate a transaction in the DB with its type and channel reference.
  *
  * We add transactions when filtering the block, but often know its type only
  * when we trigger the txwatches, at which point we've already discarded the
