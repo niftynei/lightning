@@ -6,6 +6,7 @@
 #include <common/channel_config.h>
 #include <common/funding_tx.h>
 #include <common/json_command.h>
+#include <common/json_helpers.h>
 #include <common/jsonrpc_errors.h>
 #include <common/key_derive.h>
 #include <common/param.h>
@@ -105,6 +106,70 @@ struct funding_channel {
 	struct pubkey remote_funding_pubkey;
 	struct bitcoin_tx *funding_tx;
 };
+
+struct openchannel_hook_payload {
+	struct subd *openingd;
+	struct amount_sat funding_satoshis;
+	struct amount_msat push_msat;
+	struct amount_sat dust_limit_satoshis;
+	struct amount_msat max_htlc_value_in_flight_msat;
+	struct amount_sat channel_reserve_satoshis;
+	struct amount_msat htlc_minimum_msat;
+	u32 feerate_per_kw;
+	u16 to_self_delay;
+	u16 max_accepted_htlcs;
+	u8 channel_flags;
+	u8 *shutdown_scriptpubkey;
+};
+
+struct openchannel2_hook_payload {
+	struct openchannel_hook_payload *ocp;
+	struct amount_sat our_max_funding;
+	u32 feerate_per_kw_funding;
+	u16 max_allowed_inputs;
+};
+
+/* openingd dies?  Remove openingd ptr from payload */
+static void openchannel_payload_remove_openingd(struct subd *openingd,
+					        struct openchannel_hook_payload *payload)
+{
+	assert(payload->openingd == openingd);
+	payload->openingd = NULL;
+}
+
+static struct openchannel_hook_payload
+*new_openchannel_hook_payload(const tal_t *ctx,
+			      struct subd *openingd,
+			      struct amount_sat funding_satoshis,
+			      struct amount_msat push_msat,
+			      struct amount_sat dust_limit_satoshis,
+			      struct amount_msat max_htlc_value_in_flight_msat,
+			      struct amount_sat channel_reserve_satoshis,
+			      struct amount_msat htlc_minimum_msat,
+			      u32 feerate_per_kw,
+			      u16 to_self_delay,
+			      u16 max_accepted_htlcs,
+			      u8 channel_flags,
+			      u8 *shutdown_scriptpubkey)
+{
+	struct openchannel_hook_payload *payload = tal(ctx, struct openchannel_hook_payload);
+	payload->openingd = openingd;
+
+	payload->funding_satoshis = funding_satoshis;
+	payload->push_msat = push_msat;
+	payload->dust_limit_satoshis = dust_limit_satoshis;
+	payload->max_htlc_value_in_flight_msat = max_htlc_value_in_flight_msat;
+	payload->channel_reserve_satoshis = channel_reserve_satoshis;
+	payload->htlc_minimum_msat = htlc_minimum_msat;
+	payload->feerate_per_kw = feerate_per_kw;
+	payload->to_self_delay = to_self_delay;
+	payload->max_accepted_htlcs = max_accepted_htlcs;
+	payload->channel_flags = channel_flags;
+	payload->shutdown_scriptpubkey = shutdown_scriptpubkey;
+
+	tal_add_destructor2(openingd, openchannel_payload_remove_openingd, payload);
+	return payload;
+}
 
 /* There's nothing permanent in an unconfirmed transaction */
 static void opening_channel_set_billboard(struct uncommitted_channel *uc,
@@ -618,7 +683,68 @@ cleanup:
 	tal_free(fc->uc);
 }
 
+static void serialize_openchannel_payload(struct openchannel_hook_payload *payload,
+					  struct json_stream *stream)
+{
+	struct uncommitted_channel *uc = payload->openingd->channel;
+	json_add_node_id(stream, "id", &uc->peer->id);
+	json_add_amount_sat_only(stream, "funding_satoshis",
+				 payload->funding_satoshis);
+	json_add_amount_msat_only(stream, "push_msat", payload->push_msat);
+	json_add_amount_sat_only(stream, "dust_limit_satoshis",
+				 payload->dust_limit_satoshis);
+	json_add_amount_msat_only(stream, "max_htlc_value_in_flight_msat",
+				  payload->max_htlc_value_in_flight_msat);
+	json_add_amount_msat_only(stream, "htlc_minimum_msat",
+				  payload->htlc_minimum_msat);
+	json_add_num(stream, "feerate_per_kw", payload->feerate_per_kw);
+	json_add_num(stream, "to_self_delay", payload->to_self_delay);
+	json_add_num(stream, "max_accepted_htlcs", payload->max_accepted_htlcs);
+	json_add_num(stream, "channel_flags", payload->channel_flags);
+	if (tal_count(payload->shutdown_scriptpubkey) != 0)
+		json_add_hex_talarr(stream, "shutdown_scriptpubkey",
+				    payload->shutdown_scriptpubkey);
+}
+
+
+static char *extract_openchannel_hook_result(const char *buffer,
+					     const jsmntok_t *toks)
+{
+	char *errmsg = NULL;
+	const jsmntok_t *t = json_get_member(buffer, toks, "result");
+	if (!t)
+		fatal("Plugin returned an invalid response to the"
+		      " openchannel hook: %.*s",
+		      toks[0].end - toks[0].start,
+		      buffer + toks[0].start);
+
+	if (json_tok_streq(buffer, t, "reject")) {
+		t = json_get_member(buffer, toks, "error_message");
+		if (t)
+			errmsg = json_strdup(tmpctx, buffer, t);
+		else
+			errmsg = "Channel open rejected";
+	} else if (!json_tok_streq(buffer, t, "continue"))
+		fatal("Plugin returned an invalid result for the "
+		      "openchannel hook: %.*s",
+		      t->end - t->start, buffer + t->start);
+
+	return errmsg;
+}
+
+
 #ifdef EXPERIMENTAL_FEATURES
+static void openchannel2_hook_serialize(struct openchannel2_hook_payload *payload,
+					struct json_stream *stream)
+{
+	json_object_start(stream, "openchannel2");
+	serialize_openchannel_payload(payload->ocp, stream);
+	json_add_num(stream, "feerate_per_kw_funding", payload->feerate_per_kw_funding);
+	json_add_amount_sat_only(stream, "our_max_funding_satoshis",
+				 payload->our_max_funding);
+	json_object_end(stream); /* .openchannel2 */
+}
+
 static struct output_info *build_outputs(const tal_t *ctx,
 					 const struct ext_key *bip32_base,
 					 u32 change_keyindex,
@@ -681,35 +807,169 @@ static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 	}
 }
 
+static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
+				 const char *buffer,
+				 const jsmntok_t *toks)
+{
+	const char *errmsg;
+	struct subd *openingd = payload->ocp->openingd;
+	struct wallet *w = openingd->ld->wallet;
+	struct uncommitted_channel *uc = openingd->channel;
+	struct funding_channel *fc = uc->fc;
+	u32 change_keyindex;
+	u8 *msg;
+
+	/* We want to free payload, whatever happens */
+	tal_steal(tmpctx, payload);
+
+	/* If openingd went away, don't send it anything */
+	if (!openingd)
+		return;
+
+	tal_del_destructor2(openingd, openchannel_payload_remove_openingd, payload->ocp);
+
+	/* If there was a result, let's get it out */
+	if (buffer) {
+		errmsg = extract_openchannel_hook_result(buffer, toks);
+		if (!errmsg) {
+			const jsmntok_t *funding_sats = json_get_member(buffer,
+								       toks,
+								       "funding_sats");
+			if (funding_sats)
+				json_to_sat(buffer, funding_sats, &fc->accepter_funding);
+		} else {
+			log_debug(openingd->ld->log,
+				  "openchannel2_hook_cb says '%s'",
+				  errmsg);
+		}
+	} else
+		errmsg = NULL;
+
+	/* If we're going to fund this, find utxos for it */
+	if (amount_sat_greater(fc->accepter_funding, AMOUNT_SAT(0))) {
+		/* Print a warning if we're trying to fund a channel with more
+		 * than we said that we'd be allowed to */
+		if (amount_sat_greater(fc->accepter_funding, payload->our_max_funding))
+			log_info(openingd->log,
+				 "Attempting to fund channel for %s when max was set to %s",
+				 type_to_string(tmpctx, struct amount_sat, &fc->accepter_funding),
+				 type_to_string(tmpctx, struct amount_sat,
+						&payload->our_max_funding));
+		fc->wtx->utxos = wallet_select_coins(fc, w,
+						     fc->accepter_funding,
+						     0, 0, UINT32_MAX,
+						     NO_PAY, NULL,
+						     &fc->local_change);
+
+		/* Verify that we're still under the contrib count that was offered */
+		if (tal_count(fc->wtx->utxos) > payload->max_allowed_inputs) {
+			log_info(openingd->log,
+				 "Too many utxos selected (%ld), only %"PRIu16" allowed",
+				 tal_count(fc->wtx->utxos), payload->max_allowed_inputs);
+			fc->wtx->utxos = tal_free(fc->wtx->utxos);
+			fc->local_change = AMOUNT_SAT(0);
+		}
+	} else
+		fc->local_change = AMOUNT_SAT(0);
+
+	/* Either no utxos were found, or we weren't funding it anyway */
+	if (!fc->wtx->utxos) {
+		if (amount_sat_greater(fc->accepter_funding, AMOUNT_SAT(0)))
+			/* FIXME: send notification to the plugin that
+			 *        we weren't able to fund this channel as they
+			 *        requested; utxo set has changed since hook was called */
+			log_unusual(openingd->log,
+				    "Unable to fund channel with %s; utxos unavailable",
+				    type_to_string(tmpctx, struct amount_sat,
+					           &fc->accepter_funding));
+
+		fc->accepter_funding = AMOUNT_SAT(0);
+	}
+	utxos_to_inputs(fc, w, fc->wtx->utxos, &fc->our_inputs);
+
+	/* Do we have change? */
+	if (amount_sat_greater(fc->local_change, AMOUNT_SAT(0))) {
+		change_keyindex = wallet_get_newindex(openingd->ld);
+		fc->our_outputs = build_outputs(fc,
+						w->bip32_base,
+						change_keyindex,
+						fc->local_change);
+	} else
+		fc->our_outputs = tal_arr(fc, struct output_info, 0);
+
+	msg = towire_opening_dual_open_continue(fc, errmsg,
+						fc->accepter_funding,
+						fc->our_inputs,
+						fc->our_outputs);
+	subd_send_msg(openingd, take(msg));
+	return;
+}
+
+REGISTER_PLUGIN_HOOK(openchannel2,
+		     openchannel2_hook_cb,
+		     struct openchannel2_hook_payload *,
+		     openchannel2_hook_serialize,
+		     struct openchannel2_hook_payload *);
+
 static void accepter_select_coins(struct subd *openingd,
 				  const u8 *msg,
-				  const int *fds,
 				  struct uncommitted_channel *uc)
 {
-	struct wallet *w = openingd->ld->wallet;
-	struct amount_sat max_avail_sat, max_funding_satoshi;
-	u16 contrib_count, max_allowed_inputs;
-	struct funding_channel *fc = tal(uc, struct funding_channel);
+	struct amount_sat dust_limit_satoshis;
+	struct amount_msat max_htlc_value_in_flight_msat, htlc_minimum_msat;
+	u32 feerate_per_kw;
+	u16 to_self_delay, max_accepted_htlcs, contrib_count;
+	u8 *shutdown_scriptpubkey;
 
-	u32 change_keyindex;
-	max_funding_satoshi = get_chainparams(openingd->ld)->max_funding;
+	struct wallet *w = openingd->ld->wallet;
+	struct funding_channel *fc = tal(uc, struct funding_channel);
+	struct openchannel2_hook_payload *payload = tal(openingd->ld,
+						       struct openchannel2_hook_payload);
+
+	if (peer_active_channel(uc->peer)) {
+		subd_send_msg(openingd,
+			      take(towire_opening_got_offer_reply(NULL,
+					                          "Already have active channel")));
+		return;
+	}
 
 	fc->cmd = NULL;
 	fc->uc = NULL;
 	fc->inflight = true;
 	fc->wtx = tal(fc, struct wallet_tx);
-	wtx_init(NULL, fc->wtx, max_funding_satoshi);
+	wtx_init(NULL, fc->wtx, get_chainparams(openingd->ld)->max_funding);
 
-	if (!fromwire_opening_dual_open_started(msg,
+	if (!fromwire_opening_dual_open_started(msg, msg,
 		                                &fc->opener_funding,
 						&contrib_count,
 						&fc->channel_flags,
-						&fc->push)) {
+						&fc->push,
+						&dust_limit_satoshis,
+						&max_htlc_value_in_flight_msat,
+						&htlc_minimum_msat,
+						&feerate_per_kw,
+						&payload->feerate_per_kw_funding,
+						&to_self_delay,
+						&max_accepted_htlcs,
+						&shutdown_scriptpubkey)) {
 		log_broken(uc->log, "bad OPENING_DUAL_OPEN_STARTED %s",
 			   tal_hex(msg, msg));
 		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_OPEN_STARTED");
 		goto failed;
 	}
+
+	payload->ocp = new_openchannel_hook_payload(payload, openingd,
+						    fc->opener_funding,
+						    fc->push,
+						    dust_limit_satoshis,
+						    max_htlc_value_in_flight_msat,
+						    AMOUNT_SAT(0), /* channel reserve not known yet */
+						    htlc_minimum_msat,
+						    feerate_per_kw,
+						    to_self_delay,
+						    max_accepted_htlcs,
+						    fc->channel_flags,
+						    shutdown_scriptpubkey);
 
 	/**
 	 * FIXME: Fill in with bolt info when merged
@@ -721,51 +981,14 @@ static void accepter_select_coins(struct subd *openingd,
 	 *  - MAY send zero inputs and/or outputs.
 	 */
 	/* max allowed is remote's contrib_count minus one change output */
-	max_allowed_inputs = contrib_count - 1;
+	payload->max_allowed_inputs = contrib_count - 1;
 
 	/* Calculate the max we could contribute to this channel */
-	wallet_compute_max(tmpctx, w, max_allowed_inputs, &max_avail_sat);
+	wallet_compute_max(tmpctx, w, payload->max_allowed_inputs,
+			   &payload->our_max_funding);
 
-	// FIXME: add a hook for deciding how much to fund a channel with.
-	// - send max_avail_sat, **node_id, their funding amount.
+	plugin_hook_call_openchannel2(openingd->ld, payload, payload);
 
-	/* for now, we attempt to make a balanced channel */
-	if (amount_sat_greater_eq(max_avail_sat, fc->opener_funding))
-		fc->accepter_funding = fc->opener_funding;
-	else
-		fc->accepter_funding = max_avail_sat;
-
-	/* obfuscate our funding availability, a wee bit */
-	// TODO: remove this after hook is implemented
-	if (pseudorand(7) % 7)
-		fc->accepter_funding.satoshis =
-			fc->accepter_funding.satoshis * pseudorand(100) / 100; /* Raw: value set */
-
-	fc->wtx->utxos = wallet_select_coins(fc, w,
-			                     fc->accepter_funding,
-				             0, 0, UINT32_MAX,
-				             NO_PAY, NULL,
-				             &fc->local_change);
-
-	if (!fc->wtx->utxos)
-		fc->accepter_funding = AMOUNT_SAT(0);
-
-	change_keyindex = wallet_get_newindex(openingd->ld);
-
-	utxos_to_inputs(fc, w, fc->wtx->utxos, &fc->our_inputs);
-	fc->our_outputs = build_outputs(tmpctx,
-			                w->bip32_base,
-				        change_keyindex,
-				        fc->local_change);
-
-	// TODO: fancy way to mark UTXO's as .. something??
-
-	msg = towire_opening_dual_open_continue(fc, false,
-						fc->accepter_funding,
-						fc->our_inputs,
-						fc->our_outputs);
-	subd_send_msg(openingd, take(msg));
-	return;
 failed:
 	subd_release_channel(openingd, uc);
 	uc->openingd = NULL;
@@ -1253,63 +1476,23 @@ static void channel_config(struct lightningd *ld,
 	 ours->channel_reserve = AMOUNT_SAT(UINT64_MAX);
 }
 
-struct openchannel_hook_payload {
-	struct subd *openingd;
-	struct amount_sat funding_satoshis;
-	struct amount_msat push_msat;
-	struct amount_sat dust_limit_satoshis;
-	struct amount_msat max_htlc_value_in_flight_msat;
-	struct amount_sat channel_reserve_satoshis;
-	struct amount_msat htlc_minimum_msat;
-	u32 feerate_per_kw;
-	u16 to_self_delay;
-	u16 max_accepted_htlcs;
-	u8 channel_flags;
-	u8 *shutdown_scriptpubkey;
-};
-
 static void
 openchannel_hook_serialize(struct openchannel_hook_payload *payload,
-		       struct json_stream *stream)
+		           struct json_stream *stream)
 {
-	struct uncommitted_channel *uc = payload->openingd->channel;
 	json_object_start(stream, "openchannel");
-	json_add_node_id(stream, "id", &uc->peer->id);
-	json_add_amount_sat_only(stream, "funding_satoshis",
-				 payload->funding_satoshis);
-	json_add_amount_msat_only(stream, "push_msat", payload->push_msat);
-	json_add_amount_sat_only(stream, "dust_limit_satoshis",
-				 payload->dust_limit_satoshis);
-	json_add_amount_msat_only(stream, "max_htlc_value_in_flight_msat",
-				  payload->max_htlc_value_in_flight_msat);
+	serialize_openchannel_payload(payload, stream);
 	json_add_amount_sat_only(stream, "channel_reserve_satoshis",
 				 payload->channel_reserve_satoshis);
-	json_add_amount_msat_only(stream, "htlc_minimum_msat",
-				  payload->htlc_minimum_msat);
-	json_add_num(stream, "feerate_per_kw", payload->feerate_per_kw);
-	json_add_num(stream, "to_self_delay", payload->to_self_delay);
-	json_add_num(stream, "max_accepted_htlcs", payload->max_accepted_htlcs);
-	json_add_num(stream, "channel_flags", payload->channel_flags);
-	if (tal_count(payload->shutdown_scriptpubkey) != 0)
-		json_add_hex_talarr(stream, "shutdown_scriptpubkey",
-				    payload->shutdown_scriptpubkey);
 	json_object_end(stream); /* .openchannel */
 }
 
-/* openingd dies?  Remove openingd ptr from payload */
-static void openchannel_payload_remove_openingd(struct subd *openingd,
-					    struct openchannel_hook_payload *payload)
-{
-	assert(payload->openingd == openingd);
-	payload->openingd = NULL;
-}
-
 static void openchannel_hook_cb(struct openchannel_hook_payload *payload,
-			    const char *buffer,
-			    const jsmntok_t *toks)
+			        const char *buffer,
+			        const jsmntok_t *toks)
 {
 	struct subd *openingd = payload->openingd;
-	const char *errmsg = NULL;
+	const char *errmsg;
 
 	/* We want to free this, whatever happens. */
 	tal_steal(tmpctx, payload);
@@ -1322,27 +1505,13 @@ static void openchannel_hook_cb(struct openchannel_hook_payload *payload,
 
 	/* If we had a hook, check what it says */
 	if (buffer) {
-		const jsmntok_t *t = json_get_member(buffer, toks, "result");
-		if (!t)
-			fatal("Plugin returned an invalid response to the"
-			      " openchannel hook: %.*s",
-			      toks[0].end - toks[0].start,
-			      buffer + toks[0].start);
-
-		if (json_tok_streq(buffer, t, "reject")) {
-			t = json_get_member(buffer, toks, "error_message");
-			if (t)
-				errmsg = json_strdup(tmpctx, buffer, t);
-			else
-				errmsg = "";
+		errmsg = extract_openchannel_hook_result(buffer, toks);
+		if (errmsg)
 			log_debug(openingd->ld->log,
 				  "openchannel_hook_cb says '%s'",
 				  errmsg);
-		} else if (!json_tok_streq(buffer, t, "continue"))
-			fatal("Plugin returned an invalid result for the "
-			      "openchannel hook: %.*s",
-			      t->end - t->start, buffer + t->start);
-	}
+	} else
+		errmsg = NULL;
 
 	subd_send_msg(openingd,
 		      take(towire_opening_got_offer_reply(NULL, errmsg)));
@@ -1441,7 +1610,7 @@ static unsigned int openingd_msg(struct subd *openingd,
 
 #ifdef EXPERIMENTAL_FEATURES
 	case WIRE_OPENING_DUAL_OPEN_STARTED:
-		accepter_select_coins(openingd, msg, fds, uc);
+		accepter_select_coins(openingd, msg, uc);
 		return 0;
 
 	case WIRE_OPENING_DUAL_ACCEPTED:

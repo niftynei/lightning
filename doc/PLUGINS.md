@@ -489,12 +489,13 @@ and it has passed basic sanity checks:
 	"push_msat": "0msat",
 	"dust_limit_satoshis": "546000msat",
 	"max_htlc_value_in_flight_msat": "18446744073709551615msat",
-	"channel_reserve_satoshis": "1000000msat",
 	"htlc_minimum_msat": "0msat",
 	"feerate_per_kw": 7500,
 	"to_self_delay": 5,
 	"max_accepted_htlcs": 483,
-	"channel_flags": 1
+	"channel_flags": 1,
+        "shutdown_scriptpubkey": "...", // optional
+	"channel_reserve_satoshis": "1000000msat"
   }
 }
 ```
@@ -506,6 +507,67 @@ The returned result must contain a `result` member which is either
 the string `reject` or `continue`.  If `reject` and
 there's a member `error_message`, that member is sent to the peer
 before disconnection.
+
+#### `openchannel2`
+
+This hook is called whenever a remote peer tries to fund a channel to us using the channel
+establishment version 2 (`open_channel2`) and it has passed basic sanity checks:
+
+```json
+{
+  "openchannel2": {
+	"id": "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f",
+	"funding_satoshis": "100000000msat",
+	"push_msat": "0msat",
+	"dust_limit_satoshis": "546000msat",
+	"max_htlc_value_in_flight_msat": "18446744073709551615msat",
+	"htlc_minimum_msat": "0msat",
+	"feerate_per_kw": 7500,
+	"to_self_delay": 5,
+	"max_accepted_htlcs": 483,
+	"channel_flags": 1,
+        "shutdown_scriptpubkey": "...", // optional
+        "feerate_per_kw_funding": 7500,
+        "our_max_funding_satoshis": "10000000000msat"
+  }
+}
+```
+
+The returned result must contain a `result` member which is either
+the string `reject` or `continue`.  If `reject` and
+there's a member `error_message`, that member is sent to the peer
+before disconnection.
+
+Continue, with a funding amount to put into this channel specified. This will
+attempt to contribute the specified amount to the channel. Note that if the
+utxo set has changed since the hook was invoked, there is a possibility that
+this contribution will fail, and the channel will be opened without funds
+contributed.
+
+If the `funding_sats` amount that is provided is more than the `our_max_funding_satoshis`
+that was provided, we will still attempt to create a UTXO set for that amount, however
+it is highly likely that it will fail, and the channel will be opened without funds
+contributed.
+
+```
+{ "result": "continue", "funding_sats": 10000000 }
+```
+
+To open a channel without contributing funds, return without a `funding_sats` amount.
+
+```
+{"result": "continue" }
+```
+
+To fail a channel open, return a `reject` result, with an optional error message.
+
+```
+{ "result": "reject" }
+
+// or
+
+{ "result": "reject", "error_message": "Do not want" }
+```
 
 #### `htlc_accepted`
 

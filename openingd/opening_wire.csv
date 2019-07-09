@@ -138,13 +138,22 @@ opening_dual_open_started,,their_funding,struct amount_sat
 opening_dual_open_started,,contrib_count,u16
 opening_dual_open_started,,channel_flags,u8
 opening_dual_open_started,,push_msat,struct amount_msat
+opening_dual_open_started,,dust_limit_satoshis,struct amount_sat
+opening_dual_open_started,,max_htlc_value_in_flight_msat,struct amount_msat
+opening_dual_open_started,,htlc_minimum_msat,struct amount_msat
+opening_dual_open_started,,feerate_per_kw,u32
+opening_dual_open_started,,feerate_per_kw_funding,u32
+opening_dual_open_started,,to_self_delay,u16
+opening_dual_open_started,,max_accepted_htlcs,u16
+opening_dual_open_started,,shutdown_len,u16
+opening_dual_open_started,,shutdown_scriptpubkey,shutdown_len*u8
 
 # master->openingd: what we'd like to put into the channel (or a fail)
 # 2/7
 #include <wire/gen_peer_wire.h>
 opening_dual_open_continue,6201
 # if there's a problem trying to open this, we should fail
-opening_dual_open_continue,,is_err,bool
+opening_dual_open_continue,,rejection,?wirestring
 opening_dual_open_continue,,our_funding,struct amount_sat
 opening_dual_open_continue,,num_our_inputs,u16
 opening_dual_open_continue,,our_inputs,num_our_inputs*struct input_info
