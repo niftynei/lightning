@@ -1817,11 +1817,20 @@ static u8 *fundee_channel2(struct state *state,
 	return towire_opening_dual_open_started(tmpctx,
 						state->funding,
 						state->df->contrib_count,
-						channel_flags, state->push_msat);
+						channel_flags,
+						state->push_msat,
+					        state->remoteconf.dust_limit,
+					        state->remoteconf.max_htlc_value_in_flight,
+					        state->remoteconf.htlc_minimum,
+					        state->feerate_per_kw,
+					        state->feerate_per_kw_funding,
+					        state->remoteconf.to_self_delay,
+					        state->remoteconf.max_accepted_htlcs,
+					        state->remoteconf.shutdown_scriptpubkey);
 }
 
 static u8 *accept_dual_fund_request(struct state *state,
-				    bool fail_open,
+				    char* err_reason,
 				    struct amount_sat our_funding,
 				    struct input_info *our_inputs,
 				    struct output_info *our_outputs)
@@ -1834,10 +1843,12 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	/* If master has decided we don't want to open this channel,
 	 * we'll fail it here. */
-	if (fail_open)
-		peer_failed(state->pps,
-			    &state->channel_id,
-			    "Unable to complete accept");
+	if (err_reason) {
+		u8 *errmsg = towire_errorfmt(NULL, &state->channel_id,
+					     "%s", err_reason);
+		sync_crypto_write(state->pps, take(errmsg));
+		return NULL;
+	}
 
 	/* Let's save our funding to the state object */
 	state->df->our_funding = our_funding;
@@ -2284,7 +2295,7 @@ static u8 *handle_master_in(struct state *state)
 	u16 funding_txout;
 	struct utxo **utxos;
 	struct ext_key bip32_base;
-	bool fail_open;
+	char *err_reason;
 	struct input_info *our_inputs;
 	struct output_info *our_outputs;
 	struct witness_stack *our_witnesses;
@@ -2336,12 +2347,12 @@ static u8 *handle_master_in(struct state *state)
 		return NULL;
 	case WIRE_OPENING_DUAL_OPEN_CONTINUE:
 		if (!fromwire_opening_dual_open_continue(msg, msg,
-							 &fail_open,
+							 &err_reason,
 							 &our_funding,
 							 &our_inputs,
 					                 &our_outputs))
 			master_badmsg(WIRE_OPENING_FUNDER_START, msg);
-		msg = accept_dual_fund_request(state, fail_open, 
+		msg = accept_dual_fund_request(state, err_reason,
 					       our_funding,
 					       our_inputs,
 					       our_outputs);
