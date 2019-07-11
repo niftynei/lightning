@@ -1037,7 +1037,6 @@ static void opening_funder_compose_rcvd(struct subd *openingd,
 	// TODO: check that their inputs are actually on the blockchain.
 	// and that they're segwit inputs!! << the important part
 
-
 	msg = towire_opening_dual_accepted_reply(fc);
 	subd_send_msg(openingd, take(msg));
 	return;

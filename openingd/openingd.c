@@ -60,7 +60,7 @@ struct dual_funding_state {
 	u16 contrib_count;
 	struct bitcoin_blkid chain_hash;
 	struct amount_msat local_msat;
-	
+
 	struct input_info *our_inputs, *their_inputs;
 	struct output_info *our_outputs, *their_outputs;
 	struct amount_sat our_funding;
@@ -1689,8 +1689,8 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Opener sent no funding inputs");
-		
-	/** 
+
+	/**
 	 * If they sent the wrong number of contrib_count then we might
 	 * have a wrong input count. Check that here.
 	 */
@@ -1730,7 +1730,7 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 			peer_failed(state->pps,
 				    &state->channel_id,
 				    "Peer sent non-standard output script.");
-			
+
 	}
 
 	/** TODO: add BOLT reference when merged
@@ -1811,7 +1811,7 @@ static u8 *fundee_channel2(struct state *state,
 	/* If they've sent an option_upfront_shutdown_script, save it */
 	if (opening_tlv && opening_tlv->option_upfront_shutdown_script)
 		state->remoteconf.shutdown_scriptpubkey =
-			tal_steal(state, 
+			tal_steal(state,
 				  opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey);
 
 	return towire_opening_dual_open_started(tmpctx,
@@ -1882,7 +1882,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	/* The next message should be "funding_compose" which tells us the funding
 	 * inputs and outputs they've selected. */
-	if (!fromwire_funding_compose(tmpctx, msg, &id_in, 
+	if (!fromwire_funding_compose(tmpctx, msg, &id_in,
 				      &state->remoteconf.channel_reserve,
 				      &state->df->their_inputs,
 				      &state->df->their_outputs))
@@ -1911,14 +1911,14 @@ static u8 *accept_dual_fund_request(struct state *state,
 				   	     state->feerate_per_kw_funding,
 					     &state->funding,
 					     &opener_funding, our_funding,
-					     &state->df->their_inputs, 
+					     &state->df->their_inputs,
 					     &state->df->our_inputs,
 					     &state->df->their_outputs,
 					     &state->df->our_outputs,
 					     &state->our_funding_pubkey,
 					     &state->their_funding_pubkey,
 					     NULL);
-					     
+
 	if (!funding_tx)
 		peer_failed(state->pps,
 			    &state->channel_id,
@@ -1943,7 +1943,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 	/* Now we can finish up the rest of the config checks */
 	if (!check_config_bounds_reserves_required(state, &state->remoteconf, false))
 		return NULL;
-	
+
 	if (!amount_msat_add_sat(&state->df->local_msat, state->push_msat, our_funding))
 		status_failed(STATUS_FAIL_INTERNAL_ERROR,
 			      "Overflow in adding push_msat with our funding %s + %s",
@@ -2102,19 +2102,19 @@ static u8 *continue_dual_fund_request(struct state *state)
 
 	peer_billboard(false,
 		       "Incoming channel: commitment_signed sent, waiting for funding_signed2");
-	
-	if (!fromwire_funding_signed2(state, msg, &id_in, 
+
+	if (!fromwire_funding_signed2(state, msg, &id_in,
 				      (struct witness_stack **)&remote_witnesses))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Bad funding_signed2 %s", tal_hex(msg, msg));
-			
+
 	check_channel_id(state, &id_in, &state->channel_id);
 
 	if (tal_count(remote_witnesses) != tal_count(state->df->their_inputs))
 		peer_failed(state->pps,
 			    &state->channel_id,
-			    "Received %ld witnesses for %ld inputs", 
+			    "Received %ld witnesses for %ld inputs",
 			    tal_count(remote_witnesses),
 			    tal_count(state->df->their_inputs));
 
