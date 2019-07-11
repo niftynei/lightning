@@ -705,18 +705,18 @@ static void serialize_openchannel_payload(struct openchannel_hook_payload *paylo
 
 
 static char *extract_openchannel_hook_result(const char *buffer,
-					     const jsmntok_t *toks)
+					     const jsmntok_t *resulttok)
 {
 	char *errmsg = NULL;
-	const jsmntok_t *t = json_get_member(buffer, toks, "result");
+	const jsmntok_t *t = json_get_member(buffer, resulttok, "result");
 	if (!t)
 		fatal("Plugin returned an invalid response to the"
 		      " openchannel hook: %.*s",
-		      toks[0].end - toks[0].start,
-		      buffer + toks[0].start);
+		      resulttok[0].end - resulttok[0].start,
+		      buffer + resulttok[0].start);
 
 	if (json_tok_streq(buffer, t, "reject")) {
-		t = json_get_member(buffer, toks, "error_message");
+		t = json_get_member(buffer, resulttok, "error_message");
 		if (t)
 			errmsg = json_strdup(tmpctx, buffer, t);
 		else
@@ -806,7 +806,7 @@ static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 
 static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 				 const char *buffer,
-				 const jsmntok_t *toks)
+				 const jsmntok_t *resulttok)
 {
 	const char *errmsg;
 	struct subd *openingd = payload->ocp->openingd;
@@ -827,11 +827,11 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 	
 	/* If there was a result, let's get it out */
 	if (buffer) {
-		errmsg = extract_openchannel_hook_result(buffer, toks);
+		errmsg = extract_openchannel_hook_result(buffer, resulttok);
 		if (!errmsg) {
 			const jsmntok_t *funding_sats = json_get_member(buffer,
-								       toks,
-								       "funding_sats");
+								        resulttok,
+								        "funding_sats");
 			if (funding_sats)
 				json_to_sat(buffer, funding_sats, &fc->accepter_funding);
 		} else {
