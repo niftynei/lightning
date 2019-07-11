@@ -96,7 +96,6 @@ struct msg_funding_created {
 };
 struct msg_accept_channel {
 	struct channel_id temporary_channel_id;
-	struct amount_sat funding_amount;
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat;
 	struct amount_sat channel_reserve_satoshis;
@@ -205,7 +204,6 @@ struct msg_open_channel2 {
 	struct amount_msat push_msat;
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat;
-	struct amount_sat channel_reserve_satoshis;
 	struct amount_msat htlc_minimum_msat;
 	u32 feerate_per_kw;
 	u32 feerate_per_kw_funding;
@@ -226,7 +224,6 @@ struct msg_accept_channel2 {
 	struct amount_sat funding_satoshis;
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat;
-	struct amount_sat channel_reserve_satoshis;
 	struct amount_msat htlc_minimum_msat;
 	u32 minimum_depth;
 	u16 to_self_delay;
