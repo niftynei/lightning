@@ -1196,7 +1196,7 @@ static bool output_info_eq(const struct output_info *a,
 static bool witness_element_eq(const struct witness_element *a,
 			       const struct witness_element *b)
 {
-	return ((!a && !b) || (a && b)) 
+	return ((!a && !b) || (a && b))
 		&& eq_var(a, b, witness);
 }
 

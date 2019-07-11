@@ -56,6 +56,7 @@ var_not_subtypes = [
     'fulfilled_htlc',
 ]
 
+
 class FieldType(object):
     subtype_structs = []
 

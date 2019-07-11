@@ -285,7 +285,7 @@ wallet_commit_channel(struct lightningd *ld,
 			return NULL;
 		}
 	}
-	
+
 	/* Check that we're still in bounds */
 	assert(amount_msat_less_eq_sat(our_msat, total_funding));
 
@@ -824,7 +824,7 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 		return;
 
 	tal_del_destructor2(openingd, openchannel_payload_remove_openingd, payload->ocp);
-	
+
 	/* If there was a result, let's get it out */
 	if (buffer) {
 		errmsg = extract_openchannel_hook_result(buffer, resulttok);
@@ -862,7 +862,7 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 		if (tal_count(fc->wtx->utxos) > payload->max_allowed_inputs) {
 			log_info(openingd->log,
 				 "Too many utxos selected (%ld), only %"PRIu16" allowed",
-				 tal_count(fc->wtx->utxos), payload->max_allowed_inputs);	
+				 tal_count(fc->wtx->utxos), payload->max_allowed_inputs);
 			fc->wtx->utxos = tal_free(fc->wtx->utxos);
 			fc->local_change = AMOUNT_SAT(0);
 		}
@@ -1033,7 +1033,7 @@ static void opening_funder_compose_rcvd(struct subd *openingd,
 
 	// TODO: check that their inputs are actually on the blockchain.
 	// and that they're segwit inputs!! << the important part
-	
+
 	msg = towire_opening_dual_accepted_reply(fc);
 	subd_send_msg(openingd, take(msg));
 	return;
@@ -1154,7 +1154,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 				    &funding_txid,
 				    TX_CHANNEL_FUNDING,
 				    channel->dbid);
-	
+
 	/* Send our signatures back over to the peer */
 	msg = towire_opening_dual_funding_signed_reply(fc, our_witnesses);
 	subd_send_msg(openingd, take(msg));
@@ -1619,7 +1619,7 @@ static unsigned int openingd_msg(struct subd *openingd,
 			tal_free(openingd);
 			return 0;
 		}
-		opening_dual_commitment_secured(openingd, msg, fds, uc);		
+		opening_dual_commitment_secured(openingd, msg, fds, uc);
 		return 0;
 	case WIRE_OPENING_DUAL_FUNDING_COMPLETED:
 		if (tal_count(fds) != 2)

@@ -1442,9 +1442,9 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	struct amount_sat total_funding;
 	enum side opener;
 	void **input_map;
-	
-	if (!fromwire_hsm_dual_funding_sigs(tmpctx, 
-					    msg_in, 
+
+	if (!fromwire_hsm_dual_funding_sigs(tmpctx,
+					    msg_in,
 					    &our_utxos,
 					    &feerate_kw_funding,
 					    &opener_funding,
@@ -1471,7 +1471,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 				     &local_pubkey,
 				     &remote_pubkey,
 				     &input_map);
-	
+
 	/* For the input_map, the opener_inputs are added before the accepter's */
 	offset = opener == LOCAL ? 0 : tal_count(accepter_inputs) - 1;
 	witnesses = tal_arr(tmpctx, struct witness_stack *, tal_count(our_utxos));

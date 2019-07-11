@@ -364,7 +364,7 @@ static const struct utxo **wallet_select(const tal_t *ctx, struct wallet *w,
 		input_weight += 1 + (1 + 73 + 1 + 33);
 
 		weight += input_weight;
-		
+
 		/* If dual-funded, they might contribute up this many inputs as well */
 		if (df_fee_scheme == PAY)
 			weight += input_weight;
@@ -481,7 +481,7 @@ const void wallet_compute_max(const tal_t *ctx, struct wallet *w,
 	size_t i = 0;
 	struct utxo **available;
 
-	available = wallet_get_ordered_confirmed_utxos(ctx, w, 
+	available = wallet_get_ordered_confirmed_utxos(ctx, w,
 						output_state_available);
 
 	/* Mark them all as reserved and sum up total */

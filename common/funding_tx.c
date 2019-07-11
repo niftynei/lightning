@@ -67,7 +67,7 @@ static size_t calculate_input_weights(struct input_info **inputs,
 		input_weight = (32 + 4 + 4) * 4;
 
 		if (inputs[i]->script) {
-			scriptlen = tal_bytelen(inputs[i]->script);	
+			scriptlen = tal_bytelen(inputs[i]->script);
 			input_weight += (scriptlen + varint_size(scriptlen)) * 4;
 		} else {
 			/* 00 byte script_sig len */
@@ -88,7 +88,7 @@ static size_t calculate_output_weights(struct output_info **outputs)
 	size_t i, output_weights = 0, scriptlen;
 
 	for (i = 0; i < tal_count(outputs); i++) {
-		scriptlen = tal_bytelen(outputs[i]->script);	
+		scriptlen = tal_bytelen(outputs[i]->script);
 		/* amount field + script + scriptlen varint */
 		output_weights += (8 + scriptlen + varint_size(scriptlen)) * 4;
 	}
@@ -168,11 +168,11 @@ static void add_outputs(struct bitcoin_tx *tx, struct output_info **outputs,
 		if (change && amount_sat_eq(outputs[i]->satoshis, AMOUNT_SAT(0))) {
 			if (amount_sat_eq(*change, AMOUNT_SAT(0)))
 				continue;
-			value = *change;	
+			value = *change;
 		} else
 			value = outputs[i]->satoshis;
-			
-		script = tal_dup_arr(tx, u8, outputs[i]->script, 
+
+		script = tal_dup_arr(tx, u8, outputs[i]->script,
 				     tal_count(outputs[i]->script), 0);
 		bitcoin_tx_add_output(tx, script, &value);
 	}
@@ -192,7 +192,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           const struct pubkey *remote_fundingkey,
 					   void ***input_map)
 {
-	size_t weight;	
+	size_t weight;
 	struct amount_sat funding_tx_fee, opener_total_sat,
 			  accepter_total_sat,
 			  opener_change, output_val;
@@ -228,7 +228,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 		scriptlen = tal_count(change_output->script);
 		weight -= (8 + scriptlen + varint_size(scriptlen)) * 4;
 		funding_tx_fee = amount_tx_fee(feerate_kw_funding, weight);
-		
+
 		/* Recalculate the opener_change */
 		assert(amount_sat_sub(&opener_change, opener_total_sat, *opener_funding));
 		if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
@@ -248,7 +248,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 build_tx:
 	input_count = tal_count(opener_inputs) + tal_count(accepter_inputs);
 	/* opener + accepter outputs plus the funding output */
-	output_count = tal_count(opener_outputs) 
+	output_count = tal_count(opener_outputs)
 		+ tal_count(accepter_outputs) + 1;
 
 	if (amount_sat_eq(AMOUNT_SAT(0), opener_change))
@@ -263,7 +263,7 @@ build_tx:
 
 	*total_funding = *opener_funding;
 	assert(amount_sat_add(total_funding, *total_funding, accepter_funding));
-	
+
 	const void *map[output_count];
 	for (i = 0; i < output_count; i++) {
 		map[i] = int2ptr(i);

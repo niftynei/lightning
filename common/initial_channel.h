@@ -88,7 +88,7 @@ struct channel {
  * @remote_fundingkey: remote funding key
  * @contributed_funding: True if our node contributed funds to this channel
  * @opener: which side initiated it.
- * 
+ *
  * Returns channel, or NULL if malformed.
  */
 struct channel *new_initial_channel(const tal_t *ctx,
