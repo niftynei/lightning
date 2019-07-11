@@ -29,7 +29,6 @@ static bool unknown_type(enum wire_type t)
 	case WIRE_ACCEPT_CHANNEL2:
 	case WIRE_FUNDING_COMPOSE:
 	case WIRE_FUNDING_SIGNED2:
-	case WIRE_FUNDING_LOCKED2:
 	case WIRE_INIT_RBF:
 	case WIRE_ACK_RBF:
 #endif /* EXPERIMENTAL_FEATURES */
@@ -70,7 +69,6 @@ bool is_msg_for_gossipd(const u8 *cursor)
 	case WIRE_ACCEPT_CHANNEL2:
 	case WIRE_FUNDING_COMPOSE:
 	case WIRE_FUNDING_SIGNED2:
-	case WIRE_FUNDING_LOCKED2:
 	case WIRE_INIT_RBF:
 	case WIRE_ACK_RBF:
 #endif /* EXPERIMENTAL_FEATURES */

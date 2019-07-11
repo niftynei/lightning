@@ -240,11 +240,6 @@ struct msg_funding_signed2 {
 	struct channel_id channel_id;
 	struct witness_stack *witness_stacks;
 };
-struct msg_funding_locked2 {
-	struct channel_id channel_id;
-	struct bitcoin_txid funding_tx_id;
-	struct pubkey next_per_commitment_point;
-};
 struct msg_init_rbf {
 	struct channel_id channel_id;
 	struct amount_sat funding_satoshis;
@@ -560,27 +555,6 @@ static struct msg_funding_signed2 *fromwire_struct_funding_signed2(const tal_t *
 	}
 	return tal_free(s);
 }
-static void *towire_struct_funding_locked2(const tal_t *ctx,
-					  const struct msg_funding_locked2 *s)
-{
-	return towire_funding_locked2(ctx,
-				     &s->channel_id,
-				     &s->funding_tx_id,
-				     &s->next_per_commitment_point);
-}
-
-static struct msg_funding_locked2 *fromwire_struct_funding_locked2(const tal_t *ctx, const void *p)
-{
-	struct msg_funding_locked2 *s = tal(ctx, struct msg_funding_locked2);
-
-	if (fromwire_funding_locked2(p,
-				&s->channel_id,
-				&s->funding_tx_id,
-				&s->next_per_commitment_point))
-		return s;
-	return tal_free(s);
-}
-
 
 static void *towire_struct_init_rbf(const tal_t *ctx,
 			const struct msg_init_rbf *s)
@@ -1222,12 +1196,6 @@ static bool funding_signed2_eq(const struct msg_funding_signed2 *a,
 	return ok && eq_field(a, b, channel_id);
 }
 
-static bool funding_locked2_eq(const struct msg_funding_locked2 *a,
-			       const struct msg_funding_locked2 *b)
-{
-	return memcmp(a, b, sizeof(*a)) == 0;
-}
-
 static bool init_rbf_eq(const struct msg_init_rbf *a,
 			const struct msg_init_rbf *b)
 {
@@ -1314,7 +1282,6 @@ int main(void)
 	struct msg_accept_channel2 acv2, *acv22;
 	struct msg_funding_compose fcom, *fcom2;
 	struct msg_funding_signed2 fsv2, *fsv22;
-	struct msg_funding_locked2 flv2, *flv22;
 	struct msg_init_rbf irbf, *irbf2;
 	struct msg_ack_rbf arbf, *arbf2;
 
@@ -1558,14 +1525,6 @@ int main(void)
 	fsv22 = fromwire_struct_funding_signed2(ctx, msg);
 	assert(funding_signed2_eq(&fsv2, fsv22));
 	test_corruption(&fsv2, fsv22, funding_signed2);
-
-	memset(&flv2, 2, sizeof(flv2));
-	set_pubkey(&flv2.next_per_commitment_point);
-
-	msg = towire_struct_funding_locked2(ctx, &flv2);
-	flv22 = fromwire_struct_funding_locked2(ctx, msg);
-	assert(funding_locked2_eq(&flv2, flv22));
-	test_corruption(&flv2, flv22, funding_locked2);
 
 	memset(&irbf, 2, sizeof(irbf));
 	irbf.input_infos = tal_arr(ctx, struct input_info, 2);

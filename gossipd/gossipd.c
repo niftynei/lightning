@@ -1683,7 +1683,6 @@ static struct io_plan *peer_msg_in(struct io_conn *conn,
 	case WIRE_ACCEPT_CHANNEL2:
 	case WIRE_FUNDING_COMPOSE:
 	case WIRE_FUNDING_SIGNED2:
-	case WIRE_FUNDING_LOCKED2:
 	case WIRE_INIT_RBF:
 	case WIRE_ACK_RBF:
 #endif /* EXPERIMENTAL_FEATURES */
