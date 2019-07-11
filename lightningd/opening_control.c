@@ -758,7 +758,7 @@ static struct output_info *build_outputs(const tal_t *ctx,
 	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
 		fatal("Error deriving change key %u", change_keyindex);
 
-	output.satoshis = change;
+	output.sats = change;
 	output.script = scriptpubkey_p2wpkh(&output, changekey);
 	tal_arr_expand(&outputs, output);
 
@@ -782,7 +782,7 @@ static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 	for (i = 0; i < tal_count(utxos); i++) {
 		struct input_info *input = tal(inputs, struct input_info);
 
-		input->satoshis = utxos[i]->amount;
+		input->sats = utxos[i]->amount;
 		input->prevtx_txid = utxos[i]->txid.shad.sha;
 		input->prevtx_vout = utxos[i]->outnum;
 		input->prevtx_scriptpubkey = tal_dup_arr(input, u8, utxos[i]->scriptPubkey,

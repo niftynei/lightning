@@ -77,7 +77,7 @@ static size_t calculate_input_weights(struct input_info **inputs,
 		input_weight += inputs[i]->max_witness_len;
 		weight += input_weight;
 
-		assert(amount_sat_add(total, *total, inputs[i]->satoshis));
+		assert(amount_sat_add(total, *total, inputs[i]->sats));
 	}
 
 	return weight;
@@ -128,7 +128,7 @@ static const struct output_info *find_change_output(struct output_info **outputs
 {
 	size_t i = 0;
 	for (i = 0; i < tal_count(outputs); i++) {
-		if (amount_sat_eq(outputs[i]->satoshis, AMOUNT_SAT(0)))
+		if (amount_sat_eq(outputs[i]->sats, AMOUNT_SAT(0)))
 			return outputs[i];
 	}
 	return NULL;
@@ -140,7 +140,7 @@ static struct amount_sat calculate_output_value(struct output_info **outputs)
 	struct amount_sat total = AMOUNT_SAT(0);
 
 	for (i = 0; i < tal_count(outputs); i++) {
-		assert(amount_sat_add(&total, total, outputs[i]->satoshis));
+		assert(amount_sat_add(&total, total, outputs[i]->sats));
 	}
 	return total;
 }
@@ -152,7 +152,7 @@ static void add_inputs(struct bitcoin_tx *tx, struct input_info **inputs)
 		const struct bitcoin_txid prev_txid = {{ inputs[i]->prevtx_txid }};
 		bitcoin_tx_add_input(tx, &prev_txid, inputs[i]->prevtx_vout,
 				     BITCOIN_TX_DEFAULT_SEQUENCE,
-				     &inputs[i]->satoshis, inputs[i]->script);
+				     &inputs[i]->sats, inputs[i]->script);
 	}
 }
 
@@ -165,12 +165,12 @@ static void add_outputs(struct bitcoin_tx *tx, struct output_info **outputs,
 
 	for (i = 0; i < tal_count(outputs); i++) {
 		/* Is this the change output?? */
-		if (change && amount_sat_eq(outputs[i]->satoshis, AMOUNT_SAT(0))) {
+		if (change && amount_sat_eq(outputs[i]->sats, AMOUNT_SAT(0))) {
 			if (amount_sat_eq(*change, AMOUNT_SAT(0)))
 				continue;
 			value = *change;
 		} else
-			value = outputs[i]->satoshis;
+			value = outputs[i]->sats;
 
 		script = tal_dup_arr(tx, u8, outputs[i]->script,
 				     tal_count(outputs[i]->script), 0);

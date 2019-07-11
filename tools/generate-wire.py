@@ -139,6 +139,7 @@ partialtypemap = {
     'pad': FieldType('pad'),
     'msat': FieldType('struct amount_msat'),
     'satoshis': FieldType('struct amount_sat'),
+    'sats': FieldType('struct amount_sat'),
     'node_id': FieldType('struct node_id'),
 }
 
