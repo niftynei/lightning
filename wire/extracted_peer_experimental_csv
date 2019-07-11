@@ -54,7 +54,7 @@
 +funding_compose,42+num_inputs*input_info,num_outputs,2
 +funding_compose,44+num_inputs*input_info,output_info,num_outputs*output_info
 +input_info
-+input_info,0,satoshis,8
++input_info,0,sats,8
 +input_info,8,prevtx_txid,32
 +input_info,40,prevtx_vout,4
 +input_info,44,prevtx_scriptpubkey_len,2
@@ -63,7 +63,7 @@
 +input_info,48+prevtx_scriptpubkey_len,scriptlen,2
 +input_info,50+prevtx_scriptpubkey_len,script,scriptlen
 +output_info
-+output_info,0,satoshis,8
++output_info,0,sats,8
 +output_info,8,scriptlen,2
 +output_info,10,script,scriptlen
 +funding_signed2,60

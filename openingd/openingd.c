@@ -1649,11 +1649,11 @@ static bool check_remote_inputs(struct input_info **remote_inputs,
 	size_t i = 0;
 	for (i = 0; i < tal_count(remote_inputs); i++) {
 
-		if (!amount_sat_add(input_funding, *input_funding, remote_inputs[i]->satoshis))
+		if (!amount_sat_add(input_funding, *input_funding, remote_inputs[i]->sats))
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
 				      "Overflow in remote input amount %s + %s",
 			               type_to_string(tmpctx, struct amount_sat,
-					              &remote_inputs[i]->satoshis),
+					              &remote_inputs[i]->sats),
 			               type_to_string(tmpctx, struct amount_sat,
 					              input_funding));
 		/** TODO: add BOLT reference when merged
@@ -1707,7 +1707,7 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 
 	change = AMOUNT_SAT(0);
 	for (i = 0; i < tal_count(remote_outputs); i++) {
-		if (amount_sat_eq(AMOUNT_SAT(0), remote_outputs[i]->satoshis)) {
+		if (amount_sat_eq(AMOUNT_SAT(0), remote_outputs[i]->sats)) {
 			if (has_change_address)
 				peer_failed(state->pps,
 					    &state->channel_id,
@@ -1715,13 +1715,13 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 
 			has_change_address = true;
 		}
-		if (!amount_sat_add(&change, change, remote_outputs[i]->satoshis))
+		if (!amount_sat_add(&change, change, remote_outputs[i]->sats))
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
 				      "Overflow in remote change satoshis %s + %s",
 			               type_to_string(tmpctx, struct amount_sat,
 						      &change),
 			               type_to_string(tmpctx, struct amount_sat,
-				                      &remote_outputs[i]->satoshis));
+				                      &remote_outputs[i]->sats));
 
 		/* TODO: add BOLT reference when merged
 		 * - MUST ensure the `output_info`.`script` is a standard script

@@ -1117,7 +1117,7 @@ static bool input_info_eq(const struct input_info *a,
 static bool output_info_eq(const struct output_info *a,
 			   const struct output_info *b)
 {
-	return eq_with(a, b, satoshis)
+	return eq_with(a, b, sats)
 		&& eq_var(a, b, script);
 }
 
