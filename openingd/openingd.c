@@ -63,7 +63,7 @@ struct dual_funding_state {
 
 	struct input_info *our_inputs, *their_inputs;
 	struct output_info *our_outputs, *their_outputs;
-	struct amount_sat our_funding;
+	struct amount_sat accepter_funding;
 };
 
 /* Global state structure.  This is only for the one specific peer and channel */
@@ -920,6 +920,7 @@ static u8 *funder_channel(struct state *state,
 	struct bitcoin_tx *funding, *tx;
 	struct amount_msat local_msat;
 
+	/* FIXME: check reserve logic for dfc's */
 	if (!setup_channel_funder(state))
 		goto fail;
 
@@ -1788,6 +1789,7 @@ static u8 *fundee_channel2(struct state *state,
 	u8 channel_flags;
 
 	opening_tlv = tal(state, struct opening_tlv);
+	state->df = tal(state, struct dual_funding_state);
 
 	/* BOLT #2:
 	 *
@@ -1881,9 +1883,10 @@ static u8 *accept_dual_fund_request(struct state *state,
 	}
 
 	/* Let's save our funding to the state object */
-	state->df->our_funding = our_funding;
+	state->df->accepter_funding = our_funding;
 
 	/* OK, we accept! */
+	/* FIXME: add handling for option_upfront_shutdown_script ?? */
 	msg = towire_accept_channel2(state, &state->channel_id,
 				     our_funding,
 				     state->localconf.dust_limit,
@@ -1971,15 +1974,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	bitcoin_txid(funding_tx, &state->funding_txid);
 
-	if (!amount_sat_add(&state->funding, opener_funding, our_funding))
-		status_failed(STATUS_FAIL_INTERNAL_ERROR,
-			      "Overflow in total channel funding satoshis %s + %s",
-			      type_to_string(tmpctx, struct amount_sat,
-				             &opener_funding),
-			      type_to_string(tmpctx, struct amount_sat,
-			                     &our_funding));
-
-	/* This reserves 1% of the channel (rounded up) */
+	/* This reserves 1% of the total channel (rounded up) */
 	set_reserve(state);
 
 	if (!check_reserve(state))
@@ -2016,7 +2011,7 @@ static u8 *continue_dual_fund_request(struct state *state)
 	u8 *msg;
 	char* err_reason;
 
-	msg = towire_funding_compose(state, &state->channel_id,
+	msg = towire_funding_compose(msg, &state->channel_id,
 				     state->localconf.channel_reserve,
 				     state->df->our_inputs,
 				     state->df->our_outputs);
@@ -2055,7 +2050,7 @@ static u8 *continue_dual_fund_request(struct state *state)
 					     &state->their_points,
 					     &state->our_funding_pubkey,
 					     &state->their_funding_pubkey,
-					     !amount_sat_eq(state->df->our_funding, AMOUNT_SAT(0)),
+					     !amount_sat_eq(state->df->accepter_funding, AMOUNT_SAT(0)),
 					     REMOTE);
 
 	/* We don't expect this to fail, but it does do some additional
@@ -2137,9 +2132,6 @@ static u8 *continue_dual_fund_request(struct state *state)
 	if (!msg)
 		return NULL;
 
-	peer_billboard(false,
-		       "Incoming channel: commitment_signed sent, waiting for funding_signed2");
-
 	if (!fromwire_funding_signed2(state, msg, &id_in,
 				      (struct witness_stack **)&remote_witnesses))
 		peer_failed(state->pps,
@@ -2154,6 +2146,9 @@ static u8 *continue_dual_fund_request(struct state *state)
 			    "Received %ld witnesses for %ld inputs",
 			    tal_count(remote_witnesses),
 			    tal_count(state->df->their_inputs));
+
+	peer_billboard(false,
+		       "Incoming channel: funding_signed2 rcvd");
 
 	return towire_opening_dual_funding_signed(tmpctx,
 						  state->pps,

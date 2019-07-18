@@ -1174,6 +1174,7 @@ static void opening_dual_fundee_finished(struct subd *openingd,
 	channel_watch_funding(ld, channel);
 
 	/* Mark consumed outputs as spent */
+	// TODO: mark utxos as 'broadcast'? they're still rbf'able
 	wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
 	wallet_transaction_annotate(ld->wallet, &funding_txid,
 				    TX_CHANNEL_FUNDING, channel->dbid);
