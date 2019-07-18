@@ -1522,13 +1522,13 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	tx = dual_funding_funding_tx(tmpctx,
 				     NULL,
 				     feerate_kw_funding,
-				     &total_funding,
 				     &opener_funding,
 				     accepter_funding,
 				     &opener_inputs, &accepter_inputs,
 				     &opener_outputs, &accepter_outputs,
 				     &local_pubkey,
 				     &remote_pubkey,
+				     &total_funding,
 				     &input_map);
 
 	/* For the input_map, the opener_inputs are added before the accepter's */

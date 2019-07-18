@@ -55,6 +55,29 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 }
 
 #ifdef EXPERIMENTAL_FEATURES
+struct output_info *build_outputs(const tal_t *ctx,
+				  const struct ext_key *bip32_base,
+				  u32 change_keyindex,
+				  struct amount_sat change)
+{
+	struct output_info output;
+	struct output_info *outputs;
+
+	outputs = tal_arr(ctx, struct output_info, 0);
+
+	struct pubkey *changekey;
+
+	changekey = tal(tmpctx, struct pubkey);
+	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
+		fatal("Error deriving change key %u", change_keyindex);
+
+	output.sats = change;
+	output.script = scriptpubkey_p2wpkh(&output, changekey);
+	tal_arr_expand(&outputs, output);
+
+	return outputs;
+}
+
 /* We leave out the change addresses if there's no change left after fees */
 static size_t calculate_input_weights(struct input_info **inputs,
 				      struct amount_sat *total)
@@ -182,7 +205,6 @@ static void add_outputs(struct bitcoin_tx *tx, struct output_info **outputs,
 struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           u16 *outnum,
 					   u32 feerate_kw_funding,
-					   struct amount_sat *total_funding,
 				           struct amount_sat *opener_funding,
 					   struct amount_sat accepter_funding,
 				           struct input_info **opener_inputs,
@@ -191,6 +213,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 					   struct output_info **accepter_outputs,
 				           const struct pubkey *local_fundingkey,
 				           const struct pubkey *remote_fundingkey,
+					   struct amount_sat *total_funding,
 					   void ***input_map)
 {
 	size_t weight;
@@ -206,7 +229,8 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 	u8 *wscript;
 
 	/* First, we calculate the weight of the transaction, with change outputs */
-	weight = calculate_weight(opener_inputs, accepter_inputs, opener_outputs, accepter_outputs,
+	weight = calculate_weight(opener_inputs, accepter_inputs,
+				  opener_outputs, accepter_outputs,
 				  &opener_total_sat, &accepter_total_sat);
 	funding_tx_fee = amount_tx_fee(feerate_kw_funding, weight);
 
@@ -237,7 +261,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 			opener_change = AMOUNT_SAT(0);
 			goto build_tx;
 		}
-}
+	}
 
 	output_val = calculate_output_value(opener_outputs);
 	if (!amount_sat_sub(opener_funding, opener_total_sat, funding_tx_fee) ||

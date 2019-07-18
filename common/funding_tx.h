@@ -48,6 +48,15 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 
 #ifdef EXPERIMENTAL_FEATURES
 /**
+ * Given an amount of change, a bip32_base and the change keyindex,
+ * build an output_info set. Useful helper for establishing channels
+ * under the v2 channel estamblishment protocol.
+ */
+struct output_info *build_outputs(const tal_t *ctx,
+				  const struct ext_key *bip32_base,
+				  u32 change_keyindex,
+				  struct amount_sat change);
+/**
  * funding_tx: create a P2WSH funding transaction for a channel.
  * @ctx: context to tal from.
  * @outnum: (out) txout which is the funding output.
@@ -66,7 +75,6 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           u16 *outnum,
 					   u32 feerate_kw_funding,
-					   struct amount_sat *total_funding,
 				           struct amount_sat *opener_funding,
 					   struct amount_sat accepter_funding,
 				           struct input_info **opener_inputs,
@@ -75,6 +83,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 					   struct output_info **accepter_outputs,
 				           const struct pubkey *local_fundingkey,
 				           const struct pubkey *remote_fundingkey,
+					   struct amount_sat *total_funding,
 					   void ***input_map);
 #endif /* EXPERIMENTAL_FEATURES */
 #endif /* LIGHTNING_COMMON_FUNDING_TX_H */

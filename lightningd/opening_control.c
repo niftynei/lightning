@@ -745,29 +745,6 @@ static void openchannel2_hook_serialize(struct openchannel2_hook_payload *payloa
 	json_object_end(stream); /* .openchannel2 */
 }
 
-static struct output_info *build_outputs(const tal_t *ctx,
-					 const struct ext_key *bip32_base,
-					 u32 change_keyindex,
-					 struct amount_sat change)
-{
-	struct output_info output;
-	struct output_info *outputs;
-
-	outputs = tal_arr(ctx, struct output_info, 0);
-
-	struct pubkey *changekey;
-
-	changekey = tal(tmpctx, struct pubkey);
-	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
-		fatal("Error deriving change key %u", change_keyindex);
-
-	output.sats = change;
-	output.script = scriptpubkey_p2wpkh(&output, changekey);
-	tal_arr_expand(&outputs, output);
-
-	return outputs;
-}
-
 /* This method takes a set of utxos and 'translates' it to the input_info struct
  * we'll use input_infos on the wire to communicate between lightningd/openingd
  * @ctx: context to allocate from

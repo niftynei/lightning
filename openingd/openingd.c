@@ -1673,9 +1673,12 @@ static bool check_remote_inputs(struct input_info **remote_inputs,
 
 static bool check_remote_input_outputs(const tal_t *ctx,
 				       struct state *state,
+				       enum role remote_role,
 				       struct input_info **remote_inputs,
 				       struct output_info **remote_outputs,
-				       size_t contrib_count)
+				       struct amount_sat stated_funding_sats,
+				       size_t contrib_count,
+				       struct amount_sat *funding_tx_sats)
 {
 	size_t i = 0;
 	struct amount_sat funding, change;
@@ -1685,20 +1688,36 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 	* - if is the `opener`:
 	*   - MUST NOT send zero inputs (`num_inputs` cannot be zero).
 	*/
-	if (!tal_count(remote_inputs))
-		peer_failed(state->pps,
-			    &state->channel_id,
-			    "Opener sent no funding inputs");
+	if (remote_role == OPENER) {
+		if (!tal_count(remote_inputs))
+			peer_failed(state->pps,
+				    &state->channel_id,
+				    "Opener sent no funding inputs");
 
-	/**
-	 * If they sent the wrong number of contrib_count then we might
-	 * have a wrong input count. Check that here.
-	 */
-	if (tal_count(remote_inputs) + tal_count(remote_outputs) < contrib_count)
-		peer_failed(state->pps,
-			    &state->channel_id,
-			    "Sent incorrect contrib_count of %ld. Received %ld inputs, %ld outputs",
-			    contrib_count, tal_count(remote_inputs), tal_count(remote_outputs));
+		/**
+		 * If they sent the wrong number of contrib_count then we might
+		 * have a wrong input count. Check that here.
+		 */
+		if (tal_count(remote_inputs) + tal_count(remote_outputs) < contrib_count)
+			peer_failed(state->pps,
+				    &state->channel_id,
+				    "Sent incorrect contrib_count of %ld. Received %ld inputs,"
+				    "%ld outputs",
+				    contrib_count,
+				    tal_count(remote_inputs),
+				    tal_count(remote_outputs));
+	} else {
+		/* TODO: add BOLT reference */
+		if (tal_count(remote_inputs) + tal_count(remote_outputs) > contrib_count)
+			peer_failed(state->pps,
+				    &state->channel_id,
+				    "Too many remote contributions. "
+				    "Received %ld inputs, %ld outputs; "
+				    "max allowed is %ld",
+				    tal_count(remote_inputs),
+				    tal_count(remote_outputs),
+				    contrib_count);
+	}
 
 	if (!check_remote_inputs(remote_inputs, &funding))
 		peer_failed(state->pps,
@@ -1738,7 +1757,7 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 	* - if the total `input_info`.`satoshis` is less than the total `output_info`.`satoshis`
 	*   - MUST fail the channel.
 	*/
-	if (amount_sat_greater(change, funding))
+	if (!amount_sat_sub(funding_tx_sats, funding, change))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Total remote input satoshi less than output satoshis. change:%s inputs:%s",
@@ -1747,6 +1766,17 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 			    type_to_string(tmpctx, struct amount_sat,
 					   &funding));
 
+	/* If you can't do basic math on your end, we don't want to open a channel
+	 * with you */
+	if (!amount_sat_eq(*funding_tx_sats, stated_funding_sats))
+		peer_failed(state-pps,
+			    &state->channel_id,
+			    "Remote's input amounts don't add up to stated "
+			    "funding amount (actual: %s, they said: %s)",
+			    type_to_string(tmpctx, struct amount_sat,
+					   funding_tx_sats),
+			    type_to_string(tmpctx, struct amount_sat,
+					   &stated_funding_sats));
 
 	return true;
 }
@@ -1892,16 +1922,31 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	check_channel_id(state, &id_in, &state->channel_id);
 
-	/* Prelim check that their inputs outputs are sensible. We'll actually
+	/* Prelim check that their inputs/outputs are sensible. We'll actually
 	 * look all of these up in master after the break */
-	if (!check_remote_input_outputs(state, state,
+	if (!check_remote_input_outputs(tmpctx, state,
+					OPENER,
 					&state->df->their_inputs,
 					&state->df->their_outputs,
-					state->df->contrib_count))
+					state->funding,
+					state->df->contrib_count,
+					&opener_funding))
 		return NULL;
 
-	/* Unnecessary but helps make it more clear what's going on, I think */
-	opener_funding = state->funding;
+	/* Move any pushed msats from their balance to ours */
+	if (!amount_sat_sub_msat(&opener_funding, opener_funding, state->push_msat))
+		peer_failed(state->pps,
+			    &state->channel_id,
+			    "Peer cannot afford funding, not enough funds committed.");
+
+	if (!amount_sat_add_msat(&our_funding, our_funding, state->push_msat))
+		status_failed(STATUS_FAIL_INTERNAL_ERROR,
+			      "Overflow in adding push_msat with our funding %s + %s",
+			      type_to_string(tmpctx, struct amount_msat,
+			                     &state->push_msat),
+			      type_to_string(tmpctx, struct amount_sat,
+			                     &our_funding));
+
 	state->df->our_inputs = our_inputs;
 	state->df->our_outputs = our_outputs;
 
@@ -1909,7 +1954,6 @@ static u8 *accept_dual_fund_request(struct state *state,
 	funding_tx = dual_funding_funding_tx(state,
 					     &state->funding_txout,
 				   	     state->feerate_per_kw_funding,
-					     &state->funding,
 					     &opener_funding, our_funding,
 					     &state->df->their_inputs,
 					     &state->df->our_inputs,
@@ -1917,6 +1961,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 					     &state->df->our_outputs,
 					     &state->our_funding_pubkey,
 					     &state->their_funding_pubkey,
+					     &state->funding,
 					     NULL);
 
 	if (!funding_tx)
@@ -1943,14 +1988,6 @@ static u8 *accept_dual_fund_request(struct state *state,
 	/* Now we can finish up the rest of the config checks */
 	if (!check_config_bounds_reserves_required(state, &state->remoteconf, false))
 		return NULL;
-
-	if (!amount_msat_add_sat(&state->df->local_msat, state->push_msat, our_funding))
-		status_failed(STATUS_FAIL_INTERNAL_ERROR,
-			      "Overflow in adding push_msat with our funding %s + %s",
-			      type_to_string(tmpctx, struct amount_msat,
-			                     &state->push_msat),
-			      type_to_string(tmpctx, struct amount_sat,
-			                     &our_funding));
 
 	/*~ Here we split to master, after doing as many sanity checks as possible.
 	 * We want master to save our utxo set to the database and generate the rest
