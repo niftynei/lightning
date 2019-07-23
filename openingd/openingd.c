@@ -2330,10 +2330,12 @@ static u8 *handle_master_in(struct state *state)
 	struct input_info *our_inputs;
 	struct output_info *our_outputs;
 	struct witness_stack *our_witnesses;
+	bool use_v2;
 
 	switch (t) {
 	case WIRE_OPENING_FUNDER:
 		if (!fromwire_opening_funder(state, msg,
+					     &use_v2,
 					     &state->funding,
 					     &state->push_msat,
 					     &state->feerate_per_kw,
@@ -2343,6 +2345,8 @@ static u8 *handle_master_in(struct state *state)
 					     &bip32_base))
 			master_badmsg(WIRE_OPENING_FUNDER, msg);
 
+		if (use_v2)
+			state->df = tal(state, struct dual_funding_state);
 		msg = funder_channel(state,
 				     change,
 				     change_keyindex, channel_flags,

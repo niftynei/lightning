@@ -36,4 +36,8 @@ bool global_feature_negotiated(const u8 *gfeatures, size_t f);
 #define LOCAL_UPFRONT_SHUTDOWN_SCRIPT		4
 #define LOCAL_GOSSIP_QUERIES			6
 
+#ifdef EXPERIMENTAL_FEATURES
+#define LOCAL_USE_CHANNEL_EST_V2	       28
+#endif
+
 #endif /* LIGHTNING_COMMON_FEATURES_H */
