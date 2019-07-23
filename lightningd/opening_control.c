@@ -1034,6 +1034,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	struct channel_info channel_info;
 	struct bitcoin_txid funding_txid, computed_funding_txid;
 	u16 funding_txout;
+	enum side opener;
 	struct bitcoin_signature remote_commit_sig;
 	struct bitcoin_tx *local_commit;
 	u32 feerate, feerate_funding;
@@ -1066,7 +1067,8 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 						  &feerate,
 						  &feerate_funding,
 						  &uc->our_config.channel_reserve,
-						  &remote_upfront_shutdown_script)) {
+						  &remote_upfront_shutdown_script,
+						  &opener)) {
 		log_broken(uc->log,
 			   "bad OPENING_DUAL_FUNDING_SIGNED %s",
 			   tal_hex(reply, reply));
@@ -1094,7 +1096,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 					   &uc->local_funding_pubkey,
 					   &fc->remote_funding_pubkey,
 					   remote_witnesses,
-					   REMOTE);
+					   opener);
 
 	wire_sync_write(openingd->ld->hsm_fd, take(msg));
 	msg = wire_sync_read(fc, openingd->ld->hsm_fd);
@@ -1110,15 +1112,16 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	assert(bitcoin_txid_eq(&computed_funding_txid, &funding_txid));
 
 	/* Steals fields from uc */
+	local_funding = opener == LOCAL ? fc->opener_funding : fc->accepter_funding;
 	channel = wallet_commit_channel(ld, uc,
 					local_commit,
 					&remote_commit_sig,
 					&funding_txid,
 					funding_txout,
 				 	total_funding,
-					fc->accepter_funding,
+					local_funding,
 					fc->push,
-					REMOTE,
+					opener,
 					fc->channel_flags,
 					&channel_info,
 					feerate,
@@ -1129,12 +1132,26 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 		goto cleanup;
 	}
 
-	/* Save the signed funding transaction to the database */
+	/* Save the funding transaction to the database */
 	wallet_transaction_add(ld->wallet, fc->funding_tx, 0, 0);
 	wallet_transaction_annotate(ld->wallet,
 				    &funding_txid,
 				    TX_CHANNEL_FUNDING,
 				    channel->dbid);
+
+	/* Since the REMOTE will have our sigs after this point (and will
+	 * be able to broadcast the transaction) we should mark the 
+	 * UTXO's as 'broadcast' and start watching for the transaction */
+	if (opener == LOCAL) {
+		// TODO: mark utxos as 'broadcast'? they're still rbf'able
+		wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
+		channel_watch_funding(ld, channel);
+
+		/* Start normal channel daemon. */
+		// TODO: is it ok for channeld and openingd to use the same
+		// connection?
+		peer_start_channeld(channel, pps, NULL, false);
+	}
 
 	/* Send our signatures back over to the peer */
 	msg = towire_opening_dual_funding_signed_reply(fc, our_witnesses);
@@ -1177,11 +1194,51 @@ static void opening_dual_fundee_finished(struct subd *openingd,
 	/* Mark consumed outputs as spent */
 	// TODO: mark utxos as 'broadcast'? they're still rbf'able
 	wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
-	wallet_transaction_annotate(ld->wallet, &funding_txid,
-				    TX_CHANNEL_FUNDING, channel->dbid);
 
 	/* Start normal channel daemon. */
 	peer_start_channeld(channel, pps, NULL, false);
+
+	subd_release_channel(openingd, uc);
+	uc->openingd = NULL;
+	return;
+
+failed:
+	close(fds[0]);
+	close(fds[1]);
+	close(fds[3]);
+	tal_free(uc);
+}
+
+static void opening_dual_funder_finished(struct subd *openingd,
+					 const u8 *reply,
+					 const int *fds,
+					 struct uncommitted_channel *uc)
+{
+	struct lightningd *ld = openingd->ld;
+	struct bitcoin_txid funding_txid;
+	struct per_peer_state *pps;
+	struct channel *channel = NULL;
+
+	struct witness_stack *remote_witnesses;
+
+	assert(tal_count(fds) == 2);
+
+	if (!fromwire_opening_df_opener_finished(&remote_witnesses)) {
+		log_broken(uc->log, "bad OPENING_DF_OPENER_FINSIHED %s",
+			   tal_hex(reply, reply));
+		// TODO: fix this. we're not longer at 'uncommitted' .. sort of?
+		uncommitted_channel_disconnect(uc, "bad OPENING_DF_OPENER_FINISHED");
+		goto failed;
+	}
+
+	/* Update the funding tx in the database with their signatures */
+	// TODO: add remote_witnesses to the funding_tx 
+	fc->funding_tx
+	wallet_transaction_add(ld->wallet, fc->funding_tx, 0, 0);
+
+	/* Send it out and watch for confirms. */
+	broadcast_tx(ld->topology, channel, uc->fc->funding_tx,
+		     accepter_broadcast_failed_or_succeeded);
 
 	subd_release_channel(openingd, uc);
 	uc->openingd = NULL;
@@ -2015,6 +2072,7 @@ static struct command_result *json_fund_channel(struct command *cmd,
 				    use_v2,
 				    fc->wtx->amount,
 				    fc->push,
+				    *feerate_per_kw,
 				    *feerate_per_kw,
 				    fc->wtx->change,
 				    fc->wtx->change_key_index,
