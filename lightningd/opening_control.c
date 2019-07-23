@@ -4,6 +4,7 @@
 #include <ccan/tal/str/str.h>
 #include <common/addr.h>
 #include <common/channel_config.h>
+#include <common/features.h>
 #include <common/funding_tx.h>
 #include <common/json_command.h>
 #include <common/json_helpers.h>
@@ -1932,7 +1933,7 @@ static struct command_result *json_fund_channel(struct command *cmd,
 	struct peer *peer;
 	struct channel *channel;
 	u32 *feerate_per_kw, *minconf, maxheight;
-	bool *announce_channel;
+	bool *announce_channel, use_v2;
 	u8 *msg;
 	struct amount_sat max_funding_satoshi;
 	const struct utxo **chosen_utxos;
@@ -2015,7 +2016,15 @@ static struct command_result *json_fund_channel(struct command *cmd,
 	peer->uncommitted_channel->fc = tal_steal(peer->uncommitted_channel, fc);
 	fc->uc = peer->uncommitted_channel;
 
+
+	use_v2 = false;
+#ifdef EXPERIMENTAL_FEATURES
+	use_v2 = feature_offered(peer->localfeatures, LOCAL_USE_CHANNEL_EST_V2);
+#endif
+
+	/* FIXME: way to set the 'funding_tx' feerate, separate from cmtmt tx feerate */
 	msg = towire_opening_funder(NULL,
+				    use_v2,
 				    fc->wtx->amount,
 				    fc->push,
 				    *feerate_per_kw,

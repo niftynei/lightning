@@ -46,6 +46,7 @@ opening_got_offer_reply,,rejection,?wirestring
 #include <common/htlc_wire.h>
 # Master->openingd: please fund a channel.
 opening_funder,6001
+opening_funder,,use_v2,bool
 opening_funder,,funding_satoshis,struct amount_sat
 opening_funder,,push_msat,struct amount_msat
 opening_funder,,feerate_per_kw,u32
