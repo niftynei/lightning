@@ -62,30 +62,30 @@ msgdata,hsm_sign_funding_reply,tx,bitcoin_tx,
 #include <common/htlc.h>
 #include <common/htlc_wire.h>
 #include <wire/gen_peer_wire.h>
-hsm_dual_funding_sigs,40
-hsm_dual_funding_sigs,,num_utxos,u16
-hsm_dual_funding_sigs,,our_utxos,num_utxos*struct utxo
-hsm_dual_funding_sigs,,feerate_kw_funding,u32
-hsm_dual_funding_sigs,,opener_funding,struct amount_sat
-hsm_dual_funding_sigs,,accepter_funding,struct amount_sat
-hsm_dual_funding_sigs,,num_opener_inputs,u16
-hsm_dual_funding_sigs,,opener_inputs,num_opener_inputs*struct input_info
-hsm_dual_funding_sigs,,num_accepter_inputs,u16
-hsm_dual_funding_sigs,,accepter_inputs,num_accepter_inputs*struct input_info
-hsm_dual_funding_sigs,,num_opener_outputs,u16
-hsm_dual_funding_sigs,,opener_outputs,num_opener_outputs*struct output_info
-hsm_dual_funding_sigs,,num_accepter_outputs,u16
-hsm_dual_funding_sigs,,accepter_outputs,num_accepter_outputs*struct output_info
-hsm_dual_funding_sigs,,our_pubkey,struct pubkey
-hsm_dual_funding_sigs,,their_pubkey,struct pubkey
-hsm_dual_funding_sigs,,num_witnesses,u16
-hsm_dual_funding_sigs,,witness_stack,num_witnesses*struct witness_stack
-hsm_dual_funding_sigs,,opener,enum side
+msgtype,hsm_dual_funding_sigs,40
+msgdata,hsm_dual_funding_sigs,num_utxos,u16,
+msgdata,hsm_dual_funding_sigs,our_utxos,utxo,num_utxos
+msgdata,hsm_dual_funding_sigs,feerate_kw_funding,u32,
+msgdata,hsm_dual_funding_sigs,opener_funding,amount_sat,
+msgdata,hsm_dual_funding_sigs,accepter_funding,amount_sat,
+msgdata,hsm_dual_funding_sigs,num_opener_inputs,u16,
+msgdata,hsm_dual_funding_sigs,opener_inputs,input_info,num_opener_inputs
+msgdata,hsm_dual_funding_sigs,num_accepter_inputs,u16,
+msgdata,hsm_dual_funding_sigs,accepter_inputs,input_info,num_accepter_inputs
+msgdata,hsm_dual_funding_sigs,num_opener_outputs,u16,
+msgdata,hsm_dual_funding_sigs,opener_outputs,output_info,num_opener_outputs
+msgdata,hsm_dual_funding_sigs,num_accepter_outputs,u16,
+msgdata,hsm_dual_funding_sigs,accepter_outputs,output_info,num_accepter_outputs
+msgdata,hsm_dual_funding_sigs,our_pubkey,pubkey,
+msgdata,hsm_dual_funding_sigs,their_pubkey,pubkey,
+msgdata,hsm_dual_funding_sigs,num_witnesses,u16,
+msgdata,hsm_dual_funding_sigs,witness_stack,witness_stack,num_witnesses
+msgdata,hsm_dual_funding_sigs,opener,e:side,
 
-hsm_dual_funding_sigs_reply,42
-hsm_dual_funding_sigs_reply,,num_witnesses,u16
-hsm_dual_funding_sigs_reply,,witness_stack,num_witnesses*struct witness_stack
-hsm_dual_funding_sigs_reply,,tx,struct bitcoin_tx
+msgtype,hsm_dual_funding_sigs_reply,42
+msgdata,hsm_dual_funding_sigs_reply,num_witnesses,u16,
+msgdata,hsm_dual_funding_sigs_reply,witness_stack,witness_stack,num_witnesses
+msgdata,hsm_dual_funding_sigs_reply,tx,bitcoin_tx,
 
 # Master asks the HSM to sign a node_announcement
 msgtype,hsm_node_announcement_sig_req,6

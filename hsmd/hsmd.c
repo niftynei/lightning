@@ -1479,7 +1479,7 @@ static u8 **witness_stack_to_arr(struct witness_stack *stack)
 	witnesses = tal_arr(stack, u8 *, tal_count(stack->witness_element));
 
 	for (i = 0; i < tal_count(stack->witness_element); i++) {
-		witnesses[i] = stack->witness_element[i].witness;
+		witnesses[i] = stack->witness_element[i]->witness;
 	}
 
 	return witnesses;
@@ -1489,14 +1489,14 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 						   struct client *c,
 						   const u8 *msg_in)
 {
-	struct witness_stack **witnesses, *their_witnesses;
+	struct witness_stack **witnesses, **their_witnesses;
 	size_t i = 0;
 	struct bitcoin_tx *tx;
 	u32 feerate_kw_funding, offset;
 	struct pubkey local_pubkey, remote_pubkey;
 	struct amount_sat opener_funding, accepter_funding;
-	struct input_info *opener_inputs, *accepter_inputs;
-	struct output_info *opener_outputs, *accepter_outputs;
+	struct input_info **opener_inputs, **accepter_inputs;
+	struct output_info **opener_outputs, **accepter_outputs;
 	struct utxo **our_utxos;
 	struct amount_sat total_funding;
 	enum side opener;
@@ -1524,8 +1524,8 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 				     feerate_kw_funding,
 				     &opener_funding,
 				     accepter_funding,
-				     &opener_inputs, &accepter_inputs,
-				     &opener_outputs, &accepter_outputs,
+				     opener_inputs, accepter_inputs,
+				     opener_outputs, accepter_outputs,
 				     &local_pubkey,
 				     &remote_pubkey,
 				     &total_funding,
@@ -1552,11 +1552,11 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 					     input_index,
 					     utxo_witnesses);
 
-		stack->witness_element = tal_arr(stack, struct witness_element, 2);
-		stack->witness_element[0].witness =
+		*(stack->witness_element) = tal_arr(stack, struct witness_element, 2);
+		stack->witness_element[0]->witness =
 			tal_dup_arr(stack, u8, utxo_witnesses[0],
 				    sizeof(utxo_witnesses[0]), 0);
-		stack->witness_element[1].witness =
+		stack->witness_element[1]->witness =
 			tal_dup_arr(stack, u8, utxo_witnesses[1],
 				    sizeof(utxo_witnesses[1]), 1);
 	}
@@ -1566,11 +1566,12 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	offset = opener == REMOTE ? 0 : tal_count(accepter_inputs) - 1;
 	for (i = 0; i < tal_count(their_witnesses); i++) {
 		bitcoin_tx_input_set_witness(tx, ptr2int(input_map[i + offset]),
-				             witness_stack_to_arr(&their_witnesses[i]));
+				             witness_stack_to_arr(their_witnesses[i]));
 	}
 
 	return req_reply(conn, c,
-			 take(towire_hsm_dual_funding_sigs_reply(NULL, *witnesses,
+			 take(towire_hsm_dual_funding_sigs_reply(NULL,
+								 (const struct witness_stack **)witnesses,
 								 (const struct bitcoin_tx *)tx)));
 }
 

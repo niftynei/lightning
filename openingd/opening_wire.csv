@@ -135,93 +135,93 @@ msgdata,opening_fundee,shutdown_scriptpubkey,u8,shutdown_len
 
 # openingd->master: they initiated a dual-fundable channel
 # 1/7
-opening_dual_open_started,6200
-opening_dual_open_started,,their_funding,struct amount_sat
-opening_dual_open_started,,contrib_count,u16
-opening_dual_open_started,,channel_flags,u8
-opening_dual_open_started,,push_msat,struct amount_msat
-opening_dual_open_started,,dust_limit_satoshis,struct amount_sat
-opening_dual_open_started,,max_htlc_value_in_flight_msat,struct amount_msat
-opening_dual_open_started,,htlc_minimum_msat,struct amount_msat
-opening_dual_open_started,,feerate_per_kw,u32
-opening_dual_open_started,,feerate_per_kw_funding,u32
-opening_dual_open_started,,to_self_delay,u16
-opening_dual_open_started,,max_accepted_htlcs,u16
-opening_dual_open_started,,shutdown_len,u16
-opening_dual_open_started,,shutdown_scriptpubkey,shutdown_len*u8
+msgtype,opening_dual_open_started,6200
+msgdata,opening_dual_open_started,their_funding,amount_sat,
+msgdata,opening_dual_open_started,contrib_count,u16,
+msgdata,opening_dual_open_started,channel_flags,u8,
+msgdata,opening_dual_open_started,push_msat,amount_msat,
+msgdata,opening_dual_open_started,dust_limit_satoshis,amount_sat,
+msgdata,opening_dual_open_started,max_htlc_value_in_flight_msat,amount_msat,
+msgdata,opening_dual_open_started,htlc_minimum_msat,amount_msat,
+msgdata,opening_dual_open_started,feerate_per_kw,u32,
+msgdata,opening_dual_open_started,feerate_per_kw_funding,u32,
+msgdata,opening_dual_open_started,to_self_delay,u16,
+msgdata,opening_dual_open_started,max_accepted_htlcs,u16,
+msgdata,opening_dual_open_started,shutdown_len,u16,
+msgdata,opening_dual_open_started,shutdown_scriptpubkey,u8,shutdown_len
 
 # master->openingd: what we'd like to put into the channel (or a fail)
 # 2/7
 #include <wire/gen_peer_wire.h>
-opening_dual_open_continue,6201
+msgtype,opening_dual_open_continue,6201
 # if there's a problem trying to open this, we should fail
-opening_dual_open_continue,,rejection,?wirestring
-opening_dual_open_continue,,our_funding,struct amount_sat
-opening_dual_open_continue,,num_our_inputs,u16
-opening_dual_open_continue,,our_inputs,num_our_inputs*struct input_info
-opening_dual_open_continue,,num_our_outputs,u16
-opening_dual_open_continue,,our_outputs,num_our_outputs*struct output_info
+msgdata,opening_dual_open_continue,rejection,?wirestring,
+msgdata,opening_dual_open_continue,our_funding,amount_sat,
+msgdata,opening_dual_open_continue,num_our_inputs,u16,
+msgdata,opening_dual_open_continue,our_inputs,input_info,num_our_inputs
+msgdata,opening_dual_open_continue,num_our_outputs,u16,
+msgdata,opening_dual_open_continue,our_outputs,output_info,num_our_outputs
 
 # openingd->master: their inputs + outputs
 # 3/7
-opening_dual_accepted,6202
-opening_dual_accepted,,remote_funding_pubkey,struct pubkey
-opening_dual_accepted,,num_their_inputs,u16
-opening_dual_accepted,,their_inputs,num_their_inputs*struct input_info
-opening_dual_accepted,,num_their_outputs,u16
-opening_dual_accepted,,their_outputs,num_their_outputs*struct output_info
+msgtype,opening_dual_accepted,6202
+msgdata,opening_dual_accepted,remote_funding_pubkey,pubkey,
+msgdata,opening_dual_accepted,num_their_inputs,u16,
+msgdata,opening_dual_accepted,their_inputs,input_info,num_their_inputs
+msgdata,opening_dual_accepted,num_their_outputs,u16,
+msgdata,opening_dual_accepted,their_outputs,output_info,num_their_outputs
 
 # master->openingd: continue, opening.
 # 4/7
-opening_dual_accepted_reply,6203
+msgtype,opening_dual_accepted_reply,6203
 
 # openingd->master: their witness_stack, and signatures
 # 5/7
-opening_dual_funding_signed,6204
-opening_dual_funding_signed,,pps,struct per_peer_state
-opening_dual_funding_signed,,first_commit,struct bitcoin_tx
-opening_dual_funding_signed,,first_commit_sig,struct bitcoin_signature
-opening_dual_funding_signed,,num_witnesses,u16
-opening_dual_funding_signed,,witness_stack,num_witnesses*struct witness_stack
-opening_dual_funding_signed,,their_config,struct channel_config
-opening_dual_funding_signed,,revocation_basepoint,struct pubkey
-opening_dual_funding_signed,,payment_basepoint,struct pubkey
-opening_dual_funding_signed,,htlc_basepoint,struct pubkey
-opening_dual_funding_signed,,delayed_payment_basepoint,struct pubkey
-opening_dual_funding_signed,,their_per_commit_point,struct pubkey
-opening_dual_funding_signed,,remote_fundingkey,struct pubkey
-opening_dual_funding_signed,,funding_txid,struct bitcoin_txid
-opening_dual_funding_signed,,funding_txout,u16
-opening_dual_funding_signed,,feerate_per_kw,u32
-opening_dual_funding_signed,,feerate_per_kw_funding,u32
-opening_dual_funding_signed,,our_channel_reserve_satoshis,struct amount_sat
-opening_dual_funding_signed,,shutdown_len,u16
-opening_dual_funding_signed,,shutdown_scriptpubkey,shutdown_len*u8
-opening_dual_funidng_signed,,opener,enum side
+msgtype,opening_dual_funding_signed,6204
+msgdata,opening_dual_funding_signed,pps,per_peer_state,
+msgdata,opening_dual_funding_signed,first_commit,bitcoin_tx,
+msgdata,opening_dual_funding_signed,first_commit_sig,bitcoin_signature,
+msgdata,opening_dual_funding_signed,num_witnesses,u16,
+msgdata,opening_dual_funding_signed,witness_stack,witness_stack,num_witnesses
+msgdata,opening_dual_funding_signed,their_config,channel_config,
+msgdata,opening_dual_funding_signed,revocation_basepoint,pubkey,
+msgdata,opening_dual_funding_signed,payment_basepoint,pubkey,
+msgdata,opening_dual_funding_signed,htlc_basepoint,pubkey,
+msgdata,opening_dual_funding_signed,delayed_payment_basepoint,pubkey,
+msgdata,opening_dual_funding_signed,their_per_commit_point,pubkey,
+msgdata,opening_dual_funding_signed,remote_fundingkey,pubkey,
+msgdata,opening_dual_funding_signed,funding_txid,bitcoin_txid,
+msgdata,opening_dual_funding_signed,funding_txout,u16,
+msgdata,opening_dual_funding_signed,feerate_per_kw,u32,
+msgdata,opening_dual_funding_signed,feerate_per_kw_funding,u32,
+msgdata,opening_dual_funding_signed,our_channel_reserve_satoshis,amount_sat,
+msgdata,opening_dual_funding_signed,shutdown_len,u16,
+msgdata,opening_dual_funding_signed,shutdown_scriptpubkey,u8,shutdown_len
+msgdata,opening_dual_funding_signed,opener,e:side,
 
 # master->openingd: 
 # 6/7
-opening_dual_funding_signed_reply,6205
-opening_dual_funding_signed_reply,,num_witnesses,u16
-opening_dual_funding_signed_reply,,witness_stack,num_witnesses*struct witness_stack
+msgtype,opening_dual_funding_signed_reply,6205
+msgdata,opening_dual_funding_signed_reply,num_witnesses,u16,
+msgdata,opening_dual_funding_signed_reply,witness_stack,witness_stack,num_witnesses
 
 # openingd->master:
 # 7/7
-opening_dual_funding_completed,6206
-opening_dual_funding_completed,,pps,struct per_peer_state
+msgtype,opening_dual_funding_completed,6206
+msgdata,opening_dual_funding_completed,pps,per_peer_state,
 
 # openignd->master:
 # send the remote's (accepter) funding_tx sigs to master;
 # signals the end of the channel_establishment
-opening_df_opener_finished,6207
-opening_df_opener_finished,,num_witnesses,u16
-opening_df_opener_finished,,remote_witnesses,num_witnesses*struct witness_stack
+msgtype,opening_df_opener_finished,6207
+msgdata,opening_df_opener_finished,num_witnesses,u16,
+msgdata,opening_df_opener_finished,remote_witnesses,witness_stack,num_witnesses
 
 # master->openingd: let peer know that something went wrong, 
 #                   and fail the channel establishment
-opening_dual_failed,6210
-opening_dual_failed,,reason,wirestring
-opening_dual_failed,,is_err,bool
+msgtype,opening_dual_failed,6210
+msgdata,opening_dual_failed,reason,wirestring,
+msgdata,opening_dual_failed,is_err,bool,
 
 # master -> openingd: do you have a memleak?
 msgtype,opening_dev_memleak,6033

@@ -215,6 +215,9 @@ class Type(FieldSet):
         'bitcoin_tx',
         'wirestring',
         'per_peer_state',
+        'input_info',
+        'output_info',
+        'witness_stack',
     ]
 
     # Some BOLT types are re-typed based on their field name
