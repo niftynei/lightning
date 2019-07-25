@@ -302,20 +302,25 @@ build_tx:
 	*total_funding = *opener_funding;
 	assert(amount_sat_add(total_funding, *total_funding, accepter_funding));
 
-	const void *map[output_count];
+	const void *o_map[output_count];
+	const void *i_map[input_count];
 	for (i = 0; i < output_count; i++) {
-		map[i] = int2ptr(i);
+		o_map[i] = int2ptr(i);
 	}
+	for (i = 0; i < input_count; i++) {
+		i_map[i] = int2ptr(i);
+	}
+
 	bitcoin_tx_add_output(tx, scriptpubkey_p2wsh(tx, wscript), total_funding);
 
 	/* Add the other outputs */
 	add_outputs(tx, opener_outputs, &opener_change);
 	add_outputs(tx, accepter_outputs, NULL);
 
-	permute_outputs(tx, NULL, map);
+	permute_outputs(tx, NULL, o_map);
 
 	for (i = 0; i < output_count; i++) {
-		if (map[i] == int2ptr(0)) {
+		if (o_map[i] == int2ptr(0)) {
 			*outnum = i;
 			break;
 		}
@@ -326,12 +331,9 @@ build_tx:
 	add_inputs(tx, opener_inputs);
 	add_inputs(tx, accepter_inputs);
 
-	for (i = 0; i < input_count; i++) {
-		map[i] = int2ptr(i);
-	}
-	permute_inputs(tx, map);
+	permute_inputs(tx, i_map);
 	if (input_map != NULL)
-		*input_map = (void **)&map;
+		*input_map = (void **)&i_map;
 
 	assert(bitcoin_tx_check(tx));
 	return tx;
