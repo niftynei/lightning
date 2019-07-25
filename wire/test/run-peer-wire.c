@@ -1502,6 +1502,8 @@ int main(void)
 	fcom.input_infos = tal_arr(ctx, struct input_info *, 2);
 	memset(fcom.input_infos, 2, sizeof(struct input_info *) * 2);
 	for (i = 0; i < 2; i++) {
+		fcom.input_infos[i] = tal(ctx, struct input_info);
+		memset(fcom.input_infos[i], 2, sizeof(struct input_info));
 		fcom.input_infos[i]->prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
 		memset(fcom.input_infos[i]->prevtx_scriptpubkey, 2, 2);
 		fcom.input_infos[i]->script = tal_arr(ctx, u8, 2);
@@ -1510,6 +1512,8 @@ int main(void)
 	fcom.output_infos = tal_arr(ctx, struct output_info *, 2);
 	memset(fcom.output_infos, 2, sizeof(struct output_info *)*2);
 	for (i = 0; i < 2; i++) {
+		fcom.output_infos[i] = tal(ctx, struct output_info);
+		memset(fcom.output_infos[i], 2, sizeof(struct output_info));
 		fcom.output_infos[i]->script = tal_arr(ctx, u8, 2);
 		memset(fcom.output_infos[i]->script, 2, 2);
 	}
@@ -1521,11 +1525,15 @@ int main(void)
 
 	memset(&fsv2, 2, sizeof(fsv2));
 	fsv2.witness_stacks = tal_arr(ctx, struct witness_stack *, 2);
-	memset(fsv2.witness_stacks, 2, sizeof(struct witness_stack) * 2);
+	memset(fsv2.witness_stacks, 2, sizeof(struct witness_stack *) * 2);
 	for (i = 0; i < 2; i++) {
+		fsv2.witness_stacks[i] = tal(ctx, struct witness_stack);
+		memset(fsv2.witness_stacks[i], 2, sizeof(struct witness_stack));
 		fsv2.witness_stacks[i]->witness_element = tal_arr(ctx, struct witness_element *, 2);
 		memset(fsv2.witness_stacks[i]->witness_element, 2, sizeof(struct witness_element *) * 2);
 		for (size_t j = 0; j < 2; j++) {
+			fsv2.witness_stacks[i]->witness_element[j] = tal(ctx, struct witness_element);
+			memset(fsv2.witness_stacks[i]->witness_element[j], 2, sizeof(struct witness_element));
 			fsv2.witness_stacks[i]->witness_element[j]->witness = tal_arr(ctx, u8, 2);
 			memset(fsv2.witness_stacks[i]->witness_element[j]->witness, 2, 2);
 		}
@@ -1540,6 +1548,8 @@ int main(void)
 	irbf.input_infos = tal_arr(ctx, struct input_info *, 2);
 	memset(irbf.input_infos, 2, sizeof(struct input_info *) * 2);
 	for (i = 0; i < 2; i++) {
+		irbf.input_infos[i] = tal(ctx, struct input_info);
+		memset(irbf.input_infos[i], 2, sizeof(struct input_info));
 		irbf.input_infos[i]->prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
 		memset(irbf.input_infos[i]->prevtx_scriptpubkey, 2, 2);
 		irbf.input_infos[i]->script = tal_arr(ctx, u8, 2);
@@ -1548,6 +1558,8 @@ int main(void)
 	irbf.output_infos = tal_arr(ctx, struct output_info *, 2);
 	memset(irbf.output_infos, 2, sizeof(struct output_info *)*2);
 	for (i = 0; i < 2; i++) {
+		irbf.output_infos[i] = tal(ctx, struct output_info);
+		memset(irbf.output_infos[i], 2, sizeof(struct output_info));
 		irbf.output_infos[i]->script = tal_arr(ctx, u8, 2);
 		memset(irbf.output_infos[i]->script, 2, 2);
 	}
