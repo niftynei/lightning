@@ -1259,7 +1259,7 @@ static void test_open_channel2_tlv_message_duplicate(const tal_t *ctx, u8 *msg)
 	u8 *duplicate = tal_arr(ctx, u8, 10);
 	memcpy(duplicate, msg + (len - 10), 10);
 	towire(&msg, duplicate, 10);
-	msg[len - 11] = 20; // duplicate the size variable
+	msg[len - 11] = 20; /* duplicate the size variable */
 	assert(fromwire_struct_open_channel2(ctx, msg) == NULL);
 }
 
@@ -1460,7 +1460,6 @@ int main(void)
 	ac2 = fromwire_struct_accept_channel(ctx, msg);
 	assert(accept_channel_eq(&ac, ac2));
 	test_corruption(&ac, ac2, accept_channel);
-
 
 	memset(&ocv2, 2, sizeof(ocv2));
 	set_pubkey(&ocv2.funding_pubkey);
