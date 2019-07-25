@@ -220,7 +220,7 @@ struct msg_open_channel2 {
 	struct pubkey htlc_basepoint;
 	struct pubkey first_per_commitment_point;
 	u8 channel_flags;
-	struct tlv_opening_tlvs *opening_tlv;
+	struct tlv_opening_tlvs *tlv;
 };
 struct msg_accept_channel2 {
 	struct channel_id temporary_channel_id;
@@ -237,7 +237,7 @@ struct msg_accept_channel2 {
 	struct pubkey delayed_payment_basepoint;
 	struct pubkey htlc_basepoint;
 	struct pubkey first_per_commitment_point;
-	struct tlv_opening_tlvs *opening_tlv;
+	struct tlv_opening_tlvs *tlv;
 };
 struct msg_funding_compose {
 	struct channel_id temporary_channel_id;
@@ -406,13 +406,13 @@ static void *towire_struct_open_channel2(const tal_t *ctx,
 				   &s->htlc_basepoint,
 				   &s->first_per_commitment_point,
 				   s->channel_flags,
-				   s->opening_tlv);
+				   s->tlv);
 }
 
 static struct msg_open_channel2 *fromwire_struct_open_channel2(const tal_t *ctx, const void *p)
 {
 	struct msg_open_channel2 *s = tal(ctx, struct msg_open_channel2);
-	s->opening_tlv = talz(ctx, struct tlv_opening_tlvs);
+	s->tlv = tlv_opening_tlvs_new(ctx);
 
 	if (fromwire_open_channel2(p, &s->chain_hash,
 				  &s->temporary_channel_id,
@@ -433,7 +433,7 @@ static struct msg_open_channel2 *fromwire_struct_open_channel2(const tal_t *ctx,
 				  &s->htlc_basepoint,
 				  &s->first_per_commitment_point,
 				  &s->channel_flags,
-				  s->opening_tlv))
+				  s->tlv))
 		return s;
 	return tal_free(s);
 }
@@ -499,13 +499,13 @@ static void *towire_struct_accept_channel2(const tal_t *ctx,
 				     &s->htlc_basepoint,
 				     &s->delayed_payment_basepoint,
 				     &s->first_per_commitment_point,
-				     s->opening_tlv);
+				     s->tlv);
 }
 
 static struct msg_accept_channel2 *fromwire_struct_accept_channel2(const tal_t *ctx, const void *p)
 {
 	struct msg_accept_channel2 *s = tal(ctx, struct msg_accept_channel2);
-	s->opening_tlv = talz(ctx, struct tlv_opening_tlvs);
+	s->tlv = talz(ctx, struct tlv_opening_tlvs);
 
 	if (fromwire_accept_channel2(p, &s->temporary_channel_id,
 				     &s->funding_satoshis,
@@ -521,7 +521,7 @@ static struct msg_accept_channel2 *fromwire_struct_accept_channel2(const tal_t *
 				     &s->htlc_basepoint,
 				     &s->delayed_payment_basepoint,
 				     &s->first_per_commitment_point,
-				     s->opening_tlv))
+				     s->tlv))
 		return s;
 	return tal_free(s);
 }
@@ -1120,11 +1120,11 @@ static bool open_channel_eq(const struct msg_open_channel *a,
 }
 
 static bool open_channel2_eq(const struct msg_open_channel2 *a,
-			    const struct msg_open_channel2 *b)
+			     const struct msg_open_channel2 *b)
 {
 	return eq_with(a, b, max_accepted_htlcs)
 		&& eq_between(a, b, funding_pubkey, channel_flags)
-		&& opening_tlv_eq(a->opening_tlv, b->opening_tlv);
+		&& opening_tlv_eq(a->tlv, b->tlv);
 }
 
 
@@ -1150,11 +1150,11 @@ static bool accept_channel_eq(const struct msg_accept_channel *a,
 }
 
 static bool accept_channel2_eq(const struct msg_accept_channel2 *a,
-			      const struct msg_accept_channel2 *b)
+			       const struct msg_accept_channel2 *b)
 {
 	return eq_with(a, b, max_accepted_htlcs)
 		&& eq_between(a, b, funding_pubkey, first_per_commitment_point)
-		&& opening_tlv_eq(a->opening_tlv, b->opening_tlv);
+		&& opening_tlv_eq(a->tlv, b->tlv);
 }
 
 static bool input_info_eq(struct input_info *a,
@@ -1468,9 +1468,10 @@ int main(void)
 	set_pubkey(&ocv2.htlc_basepoint);
 	set_pubkey(&ocv2.first_per_commitment_point);
 
-	memset(ocv2.opening_tlv->option_upfront_shutdown_script, 2, sizeof(*ocv2.opening_tlv->option_upfront_shutdown_script));
-	ocv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
-	memset(ocv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
+	ocv2.tlv = tal(ctx, struct tlv_opening_tlvs);
+	ocv2.tlv->option_upfront_shutdown_script = tal(ctx, struct tlv_opening_tlvs_option_upfront_shutdown_script);
+	ocv2.tlv->option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
+	memset(ocv2.tlv->option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
 
 	msg = towire_struct_open_channel2(ctx, &ocv2);
 	ocv22 = fromwire_struct_open_channel2(ctx, msg);
@@ -1486,9 +1487,10 @@ int main(void)
 	set_pubkey(&acv2.htlc_basepoint);
 	set_pubkey(&acv2.first_per_commitment_point);
 
-	memset(acv2.opening_tlv->option_upfront_shutdown_script, 2, sizeof(*acv2.opening_tlv->option_upfront_shutdown_script));
-	acv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
-	memset(acv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
+	acv2.tlv = tal(ctx, struct tlv_opening_tlvs);
+	acv2.tlv->option_upfront_shutdown_script = tal(ctx, struct tlv_opening_tlvs_option_upfront_shutdown_script);
+	acv2.tlv->option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
+	memset(acv2.tlv->option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
 
 	msg = towire_struct_accept_channel2(ctx, &acv2);
 	acv22 = fromwire_struct_accept_channel2(ctx, msg);
