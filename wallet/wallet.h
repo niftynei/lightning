@@ -1062,6 +1062,15 @@ void wallet_utxoset_add(struct wallet *w, const struct bitcoin_tx *tx,
 			const u32 txindex, const u8 *scriptpubkey,
 			struct amount_sat sat);
 
+/**
+ * wallet_transaction_add - Update the raw transaction data
+ *
+ *  Update an existing transaction with a new raw body. The transaction
+ *  MUST already be in the database. Useful for dual-funded transactions
+ *  where the remote's witness data isn't known until later.
+ */
+void wallet_transaction_update(struct wallet *w, const struct bitcoin_tx *tx);
+
 void wallet_transaction_add(struct wallet *w, const struct bitcoin_tx *tx,
 			    const u32 blockheight, const u32 txindex);
 

@@ -1236,10 +1236,11 @@ static void opening_dual_funder_finished(struct subd *openingd,
 	/* Update the funding tx in the database with their signatures */
 	// TODO: add remote_witnesses to the funding_tx
 
-	wallet_transaction_add(ld->wallet, fc->funding_tx, 0, 0);
+	/* Update the funding tx in the database with their signatures */
+	wallet_transaction_update(ld->wallet, fc->funding_tx);
 
 	/* Send it out and watch for confirms. */
-	broadcast_tx(ld->topology, channel, uc->fc->funding_tx,
+	broadcast_tx(ld->topology, channel, fc->funding_tx,
 		     accepter_broadcast_failed_or_succeeded);
 
 	subd_release_channel(openingd, uc);

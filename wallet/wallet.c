@@ -2523,6 +2523,27 @@ struct outpoint *wallet_outpoint_for_scid(struct wallet *w, tal_t *ctx,
 	return op;
 }
 
+void wallet_transaction_update(struct wallet *w, const struct bitcoin_tx *tx)
+{
+	struct bitcoin_txid txid;
+	sqlite3_stmt *stmt = db_select_prepare(w->db, "id FROM transactions WHERE id=?");
+
+	bitcoin_txid(tx, &txid);
+	sqlite3_bind_sha256(stmt, 1, &txid.shad.sha);
+	if (!db_select_step(w->db, stmt))
+		fatal("Attempting to update a transaction we don't have: %s",
+		      type_to_string(tmpctx, struct bitcoin_txid, &txid));
+
+	db_stmt_done(stmt);
+	stmt = db_prepare(w->db,
+			  "UPDATE transactions "
+			  "SET rawtx = ? "
+			  "WHERE id = ?");
+	sqlite3_bind_tx(stmt, 1, tx);
+	sqlite3_bind_sha256(stmt, 2, &txid.shad.sha);
+	db_exec_prepared(w->db, stmt);
+}
+
 void wallet_transaction_add(struct wallet *w, const struct bitcoin_tx *tx,
 			    const u32 blockheight, const u32 txindex)
 {
