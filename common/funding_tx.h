@@ -52,7 +52,7 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
  * build an output_info set. Useful helper for establishing channels
  * under the v2 channel estamblishment protocol.
  */
-struct output_info *build_outputs(const tal_t *ctx,
+struct output_info **build_outputs(const tal_t *ctx,
 				  const struct ext_key *bip32_base,
 				  u32 change_keyindex,
 				  struct amount_sat change);

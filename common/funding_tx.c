@@ -5,6 +5,7 @@
 #include <bitcoin/tx.h>
 #include <bitcoin/varint.h>
 #include <ccan/ptrint/ptrint.h>
+#include <common/key_derive.h>
 #include <common/permute_tx.h>
 #include <common/type_to_string.h>
 #include <common/utxo.h>
@@ -55,24 +56,24 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 }
 
 #ifdef EXPERIMENTAL_FEATURES
-struct output_info *build_outputs(const tal_t *ctx,
+struct output_info **build_outputs(const tal_t *ctx,
 				  const struct ext_key *bip32_base,
 				  u32 change_keyindex,
 				  struct amount_sat change)
 {
-	struct output_info output;
-	struct output_info *outputs;
+	struct output_info *output;
+	struct output_info **outputs;
 
-	outputs = tal_arr(ctx, struct output_info, 0);
+	outputs = tal_arr(ctx, struct output_info *, 0);
 
 	struct pubkey *changekey;
 
 	changekey = tal(tmpctx, struct pubkey);
 	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
-		fatal("Error deriving change key %u", change_keyindex);
+		return NULL;
 
-	output.output_satoshis = change;
-	output.script = scriptpubkey_p2wpkh(&output, changekey);
+	output->output_satoshis = change;
+	output->script = scriptpubkey_p2wpkh(&output, changekey);
 	tal_arr_expand(&outputs, output);
 
 	return outputs;
@@ -173,8 +174,7 @@ static void add_inputs(struct bitcoin_tx *tx, struct input_info **inputs)
 {
 	size_t i = 0;
 	for (i = 0; i < tal_count(inputs); i++) {
-		const struct bitcoin_txid prev_txid = {{ inputs[i]->prevtx_txid }};
-		bitcoin_tx_add_input(tx, &prev_txid, inputs[i]->prevtx_vout,
+		bitcoin_tx_add_input(tx, &inputs[i]->prevtx_txid, inputs[i]->prevtx_vout,
 				     BITCOIN_TX_DEFAULT_SEQUENCE,
 				     &inputs[i]->input_satoshis, inputs[i]->script);
 	}

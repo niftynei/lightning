@@ -12,8 +12,7 @@ opening-all: lightningd/lightning_openingd
 LIGHTNINGD_OPENING_HEADERS_GEN :=			\
 	openingd/gen_opening_wire.h
 
-LIGHTNINGD_OPENING_HEADERS_NOGEN := 			\
-	openingd/channel_establishment.h
+LIGHTNINGD_OPENING_HEADERS_NOGEN :=
 
 LIGHTNINGD_OPENING_HEADERS := $(LIGHTNINGD_OPENING_HEADERS_GEN) $(LIGHTNINGD_OPENING_HEADERS_NOGEN)
 

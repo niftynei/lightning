@@ -355,6 +355,7 @@ int main(int argc, char *argv[])
 				   &localconfig, &remoteconfig,
 				   &localbase, &remotebase,
 				   &funding_localkey, &funding_remotekey,
+				   amount_msat_greater(local_msat, AMOUNT_MSAT(0)),
 				   fee_payer);
 
 	if (!channel_force_htlcs(channel, htlcs, hstates, NULL, NULL, NULL, NULL))

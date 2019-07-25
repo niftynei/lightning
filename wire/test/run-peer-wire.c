@@ -1,8 +1,9 @@
 #include "../gen_peer_wire.c"
 
-#include "../towire.c"
-#include "../fromwire.c"
-#include "../peer_wire.c"
+#include <wire/fromwire.c>
+#include <wire/peer_wire.c>
+#include <wire/tlvstream.c>
+#include <wire/towire.c>
 
 #include <assert.h>
 #include <stdio.h>
@@ -70,11 +71,12 @@ static void set_node_id(struct node_id *id)
 		ok &= (!(p1) && !(p2)) || ((p1) && (p2));				\
 		if (ok && (p1))								\
 			for (size_t i = 0; i < tal_count((p1)->field); i++) {		\
-				 ok &= (&(p1)->field[i] && &(p2)->field[i]) ||		\
-			       		(!&(p1)->field[i] && !&(p2)->field[i]);		\
-				 if (ok && &(p1)->field[i])				\
-					 ok &= (type##_eq(&(p1)->field[i],		\
-							       &(p2)->field[i]));	\
+				struct type *_a, *_b;					\
+				_a = a->field[i];					\
+				_b = b->field[i];					\
+				 ok &= (_a && _b) || (!_a && !_b);			\
+				 if (ok && _a)						\
+					 ok &= (type##_eq(_a, _b));			\
 			}								\
 	} while (0)									\
 
@@ -217,7 +219,7 @@ struct msg_open_channel2 {
 	struct pubkey htlc_basepoint;
 	struct pubkey first_per_commitment_point;
 	u8 channel_flags;
-	struct opening_tlv opening_tlv;
+	struct tlv_opening_tlvs *opening_tlv;
 };
 struct msg_accept_channel2 {
 	struct channel_id temporary_channel_id;
@@ -234,17 +236,17 @@ struct msg_accept_channel2 {
 	struct pubkey delayed_payment_basepoint;
 	struct pubkey htlc_basepoint;
 	struct pubkey first_per_commitment_point;
-	struct opening_tlv opening_tlv;
+	struct tlv_opening_tlvs *opening_tlv;
 };
 struct msg_funding_compose {
 	struct channel_id temporary_channel_id;
 	struct amount_sat channel_reserve_satoshis;
-	struct input_info *input_infos;
-	struct output_info *output_infos;
+	struct input_info **input_infos;
+	struct output_info **output_infos;
 };
 struct msg_funding_signed2 {
 	struct channel_id channel_id;
-	struct witness_stack *witness_stacks;
+	struct witness_stack **witness_stacks;
 };
 struct msg_init_rbf {
 	struct channel_id channel_id;
@@ -252,8 +254,8 @@ struct msg_init_rbf {
 	struct amount_sat channel_reserve_satoshis;
 	u32 feerate_per_kw;
 	u32 feerate_per_kw_funding;
-	struct input_info *input_infos;
-	struct output_info *output_infos;
+	struct input_info **input_infos;
+	struct output_info **output_infos;
 };
 struct msg_ack_rbf {
 	struct channel_id channel_id;
@@ -403,15 +405,15 @@ static void *towire_struct_open_channel2(const tal_t *ctx,
 				   &s->htlc_basepoint,
 				   &s->first_per_commitment_point,
 				   s->channel_flags,
-				   &s->opening_tlv);
+				   s->opening_tlv);
 }
 
 static struct msg_open_channel2 *fromwire_struct_open_channel2(const tal_t *ctx, const void *p)
 {
 	struct msg_open_channel2 *s = tal(ctx, struct msg_open_channel2);
+	s->opening_tlv = talz(ctx, struct tlv_opening_tlvs);
 
-	if (fromwire_open_channel2(ctx, p,
-				  &s->chain_hash,
+	if (fromwire_open_channel2(p, &s->chain_hash,
 				  &s->temporary_channel_id,
 				  &s->funding_satoshis,
 				  &s->push_msat,
@@ -430,7 +432,7 @@ static struct msg_open_channel2 *fromwire_struct_open_channel2(const tal_t *ctx,
 				  &s->htlc_basepoint,
 				  &s->first_per_commitment_point,
 				  &s->channel_flags,
-				  &s->opening_tlv))
+				  s->opening_tlv))
 		return s;
 	return tal_free(s);
 }
@@ -496,40 +498,40 @@ static void *towire_struct_accept_channel2(const tal_t *ctx,
 				     &s->htlc_basepoint,
 				     &s->delayed_payment_basepoint,
 				     &s->first_per_commitment_point,
-				     &s->opening_tlv);
+				     s->opening_tlv);
 }
 
 static struct msg_accept_channel2 *fromwire_struct_accept_channel2(const tal_t *ctx, const void *p)
 {
 	struct msg_accept_channel2 *s = tal(ctx, struct msg_accept_channel2);
+	s->opening_tlv = talz(ctx, struct tlv_opening_tlvs);
 
-	if (fromwire_accept_channel2(ctx, p,
-				    &s->temporary_channel_id,
-				    &s->funding_satoshis,
-				    &s->dust_limit_satoshis,
-				    &s->max_htlc_value_in_flight_msat,
-				    &s->htlc_minimum_msat,
-				    &s->minimum_depth,
-				    &s->to_self_delay,
-				    &s->max_accepted_htlcs,
-				    &s->funding_pubkey,
-				    &s->revocation_basepoint,
-				    &s->payment_basepoint,
-				    &s->htlc_basepoint,
-				    &s->delayed_payment_basepoint,
-				    &s->first_per_commitment_point,
-				    &s->opening_tlv))
+	if (fromwire_accept_channel2(p, &s->temporary_channel_id,
+				     &s->funding_satoshis,
+				     &s->dust_limit_satoshis,
+				     &s->max_htlc_value_in_flight_msat,
+				     &s->htlc_minimum_msat,
+				     &s->minimum_depth,
+				     &s->to_self_delay,
+				     &s->max_accepted_htlcs,
+				     &s->funding_pubkey,
+				     &s->revocation_basepoint,
+				     &s->payment_basepoint,
+				     &s->htlc_basepoint,
+				     &s->delayed_payment_basepoint,
+				     &s->first_per_commitment_point,
+				     s->opening_tlv))
 		return s;
 	return tal_free(s);
 }
 static void *towire_struct_funding_compose(const tal_t *ctx,
-				const struct msg_funding_compose *s)
+				           struct msg_funding_compose *s)
 {
 	return towire_funding_compose(ctx,
 		&s->temporary_channel_id,
 		s->channel_reserve_satoshis,
-		s->input_infos,
-		s->output_infos);
+		(const struct input_info **)s->input_infos,
+		(const struct output_info **)s->output_infos);
 }
 static struct msg_funding_compose *fromwire_struct_funding_compose(const tal_t *ctx, const void *p)
 {
@@ -544,11 +546,11 @@ static struct msg_funding_compose *fromwire_struct_funding_compose(const tal_t *
 	return tal_free(s);
 }
 static void *towire_struct_funding_signed2(const tal_t *ctx,
-		const struct msg_funding_signed2 *s)
+					   struct msg_funding_signed2 *s)
 {
 	return towire_funding_signed2(ctx,
 			&s->channel_id,
-			s->witness_stacks);
+			(const struct witness_stack **)s->witness_stacks);
 }
 static struct msg_funding_signed2 *fromwire_struct_funding_signed2(const tal_t *ctx, const void *p)
 {
@@ -563,7 +565,7 @@ static struct msg_funding_signed2 *fromwire_struct_funding_signed2(const tal_t *
 }
 
 static void *towire_struct_init_rbf(const tal_t *ctx,
-			const struct msg_init_rbf *s)
+				    struct msg_init_rbf *s)
 {
 	return towire_init_rbf(ctx,
 			&s->channel_id,
@@ -571,8 +573,8 @@ static void *towire_struct_init_rbf(const tal_t *ctx,
 			s->channel_reserve_satoshis,
 			s->feerate_per_kw,
 			s->feerate_per_kw_funding,
-			s->input_infos,
-			s->output_infos);
+			(const struct input_info **)s->input_infos,
+			(const struct output_info **)s->output_infos);
 }
 static struct msg_init_rbf *fromwire_struct_init_rbf(const tal_t *ctx, const void *p)
 {
@@ -997,17 +999,17 @@ static struct msg_init *fromwire_struct_init(const tal_t *ctx, const void *p)
 	return s;
 }
 
-static bool tlv_msg_option_upfront_shutdown_script_eq(const struct tlv_msg_option_upfront_shutdown_script *a,
-						      const struct tlv_msg_option_upfront_shutdown_script *b)
+static bool tlv_opening_tlvs_option_upfront_shutdown_script_eq(const struct tlv_opening_tlvs_option_upfront_shutdown_script *a,
+						      const struct tlv_opening_tlvs_option_upfront_shutdown_script *b)
 {
 	return (!a && !b)
 		|| (a && b && eq_var(a, b, shutdown_scriptpubkey));
 }
 
-static bool opening_tlv_eq(const struct opening_tlv *a,
-			   const struct opening_tlv *b)
+static bool opening_tlv_eq(const struct tlv_opening_tlvs *a,
+			   const struct tlv_opening_tlvs *b)
 {
-	return tlv_msg_option_upfront_shutdown_script_eq(a->option_upfront_shutdown_script,
+	return tlv_opening_tlvs_option_upfront_shutdown_script_eq(a->option_upfront_shutdown_script,
 			b->option_upfront_shutdown_script);
 }
 
@@ -1121,7 +1123,7 @@ static bool open_channel2_eq(const struct msg_open_channel2 *a,
 {
 	return eq_with(a, b, max_accepted_htlcs)
 		&& eq_between(a, b, funding_pubkey, channel_flags)
-		&& opening_tlv_eq(&a->opening_tlv, &b->opening_tlv);
+		&& opening_tlv_eq(a->opening_tlv, b->opening_tlv);
 }
 
 
@@ -1151,11 +1153,11 @@ static bool accept_channel2_eq(const struct msg_accept_channel2 *a,
 {
 	return eq_with(a, b, max_accepted_htlcs)
 		&& eq_between(a, b, funding_pubkey, first_per_commitment_point)
-		&& opening_tlv_eq(&a->opening_tlv, &b->opening_tlv);
+		&& opening_tlv_eq(a->opening_tlv, b->opening_tlv);
 }
 
-static bool input_info_eq(const struct input_info *a,
-			   const struct input_info *b)
+static bool input_info_eq(struct input_info *a,
+			  struct input_info *b)
 {
 	return eq_with(a, b, prevtx_vout)
 		&& eq_var(a, b, prevtx_scriptpubkey)
@@ -1163,22 +1165,22 @@ static bool input_info_eq(const struct input_info *a,
 		&& eq_var(a, b, script);
 }
 
-static bool output_info_eq(const struct output_info *a,
-			   const struct output_info *b)
+static bool output_info_eq(struct output_info *a,
+                           struct output_info *b)
 {
-	return eq_with(a, b, sats)
-		&& eq_var(a, b, script);
+       return eq_with(a, b, output_satoshis)
+               && eq_var(a, b, script);
 }
 
-static bool witness_element_eq(const struct witness_element *a,
-			       const struct witness_element *b)
+static bool witness_element_eq(struct witness_element *a,
+			       struct witness_element *b)
 {
 	return ((!a && !b) || (a && b))
 		&& eq_var(a, b, witness);
 }
 
-static bool witness_stack_eq(const struct witness_stack *a,
-			     const struct witness_stack *b)
+static bool witness_stack_eq(struct witness_stack *a,
+			     struct witness_stack *b)
 {
 	bool ok = true;
 	eq_struct_set(a, b, witness_element, witness_element);
@@ -1465,10 +1467,9 @@ int main(void)
 	set_pubkey(&ocv2.htlc_basepoint);
 	set_pubkey(&ocv2.first_per_commitment_point);
 
-	ocv2.opening_tlv.option_upfront_shutdown_script = talz(ctx, struct tlv_msg_option_upfront_shutdown_script);
-	memset(ocv2.opening_tlv.option_upfront_shutdown_script, 2, sizeof(*ocv2.opening_tlv.option_upfront_shutdown_script));
-	ocv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
-	memset(ocv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
+	memset(ocv2.opening_tlv->option_upfront_shutdown_script, 2, sizeof(*ocv2.opening_tlv->option_upfront_shutdown_script));
+	ocv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
+	memset(ocv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
 
 	msg = towire_struct_open_channel2(ctx, &ocv2);
 	ocv22 = fromwire_struct_open_channel2(ctx, msg);
@@ -1484,10 +1485,9 @@ int main(void)
 	set_pubkey(&acv2.htlc_basepoint);
 	set_pubkey(&acv2.first_per_commitment_point);
 
-	acv2.opening_tlv.option_upfront_shutdown_script = talz(ctx, struct tlv_msg_option_upfront_shutdown_script);
-	memset(acv2.opening_tlv.option_upfront_shutdown_script, 2, sizeof(*acv2.opening_tlv.option_upfront_shutdown_script));
-	acv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
-	memset(acv2.opening_tlv.option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
+	memset(acv2.opening_tlv->option_upfront_shutdown_script, 2, sizeof(*acv2.opening_tlv->option_upfront_shutdown_script));
+	acv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey = tal_arr(ctx, u8, 2);
+	memset(acv2.opening_tlv->option_upfront_shutdown_script->shutdown_scriptpubkey, 2, 2);
 
 	msg = towire_struct_accept_channel2(ctx, &acv2);
 	acv22 = fromwire_struct_accept_channel2(ctx, msg);
@@ -1495,19 +1495,19 @@ int main(void)
 	test_corruption(&acv2, acv22, accept_channel2);
 
 	memset(&fcom, 2, sizeof(fcom));
-	fcom.input_infos = tal_arr(ctx, struct input_info, 2);
-	memset(fcom.input_infos, 2, sizeof(struct input_info) * 2);
+	fcom.input_infos = tal_arr(ctx, struct input_info *, 2);
+	memset(fcom.input_infos, 2, sizeof(struct input_info *) * 2);
 	for (i = 0; i < 2; i++) {
-		fcom.input_infos[i].prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
-		memset(fcom.input_infos[i].prevtx_scriptpubkey, 2, 2);
-		fcom.input_infos[i].script = tal_arr(ctx, u8, 2);
-		memset(fcom.input_infos[i].script, 2, 2);
+		fcom.input_infos[i]->prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
+		memset(fcom.input_infos[i]->prevtx_scriptpubkey, 2, 2);
+		fcom.input_infos[i]->script = tal_arr(ctx, u8, 2);
+		memset(fcom.input_infos[i]->script, 2, 2);
 	}
-	fcom.output_infos = tal_arr(ctx, struct output_info, 2);
-	memset(fcom.output_infos, 2, sizeof(struct output_info)*2);
+	fcom.output_infos = tal_arr(ctx, struct output_info *, 2);
+	memset(fcom.output_infos, 2, sizeof(struct output_info *)*2);
 	for (i = 0; i < 2; i++) {
-		fcom.output_infos[i].script = tal_arr(ctx, u8, 2);
-		memset(fcom.output_infos[i].script, 2, 2);
+		fcom.output_infos[i]->script = tal_arr(ctx, u8, 2);
+		memset(fcom.output_infos[i]->script, 2, 2);
 	}
 
 	msg = towire_struct_funding_compose(ctx, &fcom);
@@ -1516,14 +1516,14 @@ int main(void)
 	test_corruption(&fcom, fcom2, funding_compose);
 
 	memset(&fsv2, 2, sizeof(fsv2));
-	fsv2.witness_stacks = tal_arr(ctx, struct witness_stack, 2);
+	fsv2.witness_stacks = tal_arr(ctx, struct witness_stack *, 2);
 	memset(fsv2.witness_stacks, 2, sizeof(struct witness_stack) * 2);
 	for (i = 0; i < 2; i++) {
-		fsv2.witness_stacks[i].witness_element = tal_arr(ctx, struct witness_element, 2);
-		memset(fsv2.witness_stacks[i].witness_element, 2, sizeof(struct witness_element) * 2);
+		fsv2.witness_stacks[i]->witness_element = tal_arr(ctx, struct witness_element *, 2);
+		memset(fsv2.witness_stacks[i]->witness_element, 2, sizeof(struct witness_element *) * 2);
 		for (size_t j = 0; j < 2; j++) {
-			fsv2.witness_stacks[i].witness_element[j].witness = tal_arr(ctx, u8, 2);
-			memset(fsv2.witness_stacks[i].witness_element[j].witness, 2, 2);
+			fsv2.witness_stacks[i]->witness_element[j]->witness = tal_arr(ctx, u8, 2);
+			memset(fsv2.witness_stacks[i]->witness_element[j]->witness, 2, 2);
 		}
 	}
 
@@ -1533,19 +1533,19 @@ int main(void)
 	test_corruption(&fsv2, fsv22, funding_signed2);
 
 	memset(&irbf, 2, sizeof(irbf));
-	irbf.input_infos = tal_arr(ctx, struct input_info, 2);
-	memset(irbf.input_infos, 2, sizeof(struct input_info) * 2);
+	irbf.input_infos = tal_arr(ctx, struct input_info *, 2);
+	memset(irbf.input_infos, 2, sizeof(struct input_info *) * 2);
 	for (i = 0; i < 2; i++) {
-		irbf.input_infos[i].prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
-		memset(irbf.input_infos[i].prevtx_scriptpubkey, 2, 2);
-		irbf.input_infos[i].script = tal_arr(ctx, u8, 2);
-		memset(irbf.input_infos[i].script, 2, 2);
+		irbf.input_infos[i]->prevtx_scriptpubkey = tal_arr(ctx, u8, 2);
+		memset(irbf.input_infos[i]->prevtx_scriptpubkey, 2, 2);
+		irbf.input_infos[i]->script = tal_arr(ctx, u8, 2);
+		memset(irbf.input_infos[i]->script, 2, 2);
 	}
-	irbf.output_infos = tal_arr(ctx, struct output_info, 2);
-	memset(irbf.output_infos, 2, sizeof(struct output_info)*2);
+	irbf.output_infos = tal_arr(ctx, struct output_info *, 2);
+	memset(irbf.output_infos, 2, sizeof(struct output_info *)*2);
 	for (i = 0; i < 2; i++) {
-		irbf.output_infos[i].script = tal_arr(ctx, u8, 2);
-		memset(irbf.output_infos[i].script, 2, 2);
+		irbf.output_infos[i]->script = tal_arr(ctx, u8, 2);
+		memset(irbf.output_infos[i]->script, 2, 2);
 	}
 
 	msg = towire_struct_init_rbf(ctx, &irbf);

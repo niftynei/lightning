@@ -57,6 +57,7 @@ msgdata,opening_funder,channel_flags,u8,
 #include <common/utxo.h>
 msgdata,opening_funder,num_inputs,u16,
 msgdata,opening_funder,inputs,utxo,num_inputs
+msgdata,opening_funder,input_info,input_info,num_inputs
 msgdata,opening_funder,bip32,ext_key,
 
 # Openingd->master: we've successfully offered channel.
