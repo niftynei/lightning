@@ -15,6 +15,7 @@
 #include <ccan/breakpoint/breakpoint.h>
 #include <ccan/cast/cast.h>
 #include <ccan/fdpass/fdpass.h>
+#include <ccan/ptrint/ptrint.h>
 #include <ccan/tal/str/str.h>
 #include <common/crypto_sync.h>
 #include <common/derive_basepoints.h>
@@ -1052,6 +1053,7 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 	const struct witness_stack **remote_witnesses;
 	struct witness_stack **our_witnesses;
 	const u8 *wscript;
+	void **input_map;
 
 	char* err_reason;
 	u8 *msg;
@@ -1124,7 +1126,7 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 					     &state->our_funding_pubkey,
 					     &state->their_funding_pubkey,
 					     &state->funding,
-					     NULL);
+					     &input_map);
 
 	if (!funding_tx)
 		peer_failed(state->pps,
@@ -1301,8 +1303,13 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 			    tal_count(remote_witnesses),
 			    tal_count(state->df->their_inputs));
 
-
-	return towire_opening_df_opener_finished(tmpctx, remote_witnesses);
+	size_t input_count = tal_count(our_inputs) +
+		tal_count(state->df->their_inputs);
+	u32 map[input_count];
+	for (size_t i = 0; i < input_count; i++) {
+		map[i] = ptr2int(input_map[i]);
+	}
+	return towire_opening_df_opener_finished(tmpctx, remote_witnesses, map);
 }
 
 static u8 *funder_channel_complete(struct state *state)

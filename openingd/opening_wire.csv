@@ -217,6 +217,8 @@ msgdata,opening_dual_funding_completed,pps,per_peer_state,
 msgtype,opening_df_opener_finished,6207
 msgdata,opening_df_opener_finished,num_witnesses,u16,
 msgdata,opening_df_opener_finished,remote_witnesses,witness_stack,num_witnesses
+msgdata,opening_df_opener_finished,num_inputs,u32,
+msgdata,opening_df_opener_finished,input_map,u32,num_inputs
 
 # master->openingd: let peer know that something went wrong, 
 #                   and fail the channel establishment

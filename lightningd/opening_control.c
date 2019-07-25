@@ -1220,12 +1220,14 @@ static void opening_dual_funder_finished(struct subd *openingd,
 	struct lightningd *ld = openingd->ld;
 	struct channel *channel = NULL;
 	struct funding_channel *fc = uc->fc;
-
+	size_t i, offset;
+	u32 *input_map;
 	struct witness_stack **remote_witnesses;
 
 	assert(tal_count(fds) == 2);
 
-	if (!fromwire_opening_df_opener_finished(reply, reply, &remote_witnesses)) {
+	if (!fromwire_opening_df_opener_finished(reply, reply,
+						 &remote_witnesses, &input_map)) {
 		log_broken(uc->log, "bad OPENING_DF_OPENER_FINSIHED %s",
 			   tal_hex(reply, reply));
 		// TODO: fix this. we're not longer at 'uncommitted' .. sort of?
@@ -1233,8 +1235,16 @@ static void opening_dual_funder_finished(struct subd *openingd,
 		goto failed;
 	}
 
-	/* Update the funding tx in the database with their signatures */
-	// TODO: add remote_witnesses to the funding_tx
+	/* We offset for the input_map by the size of our inputs as
+	 * for c-lightning dual funding tx composition, the opener's
+	 * inputs are always added first (and we're adding the accepter's
+	 * witnesses here) */
+	offset = tal_count(fc->our_inputs) - 1;
+	for (i = 0; i < tal_count(remote_witnesses); i++) {
+		bitcoin_tx_input_set_witness(fc->funding_tx,
+					     input_map[i + offset],
+					     witness_stack_to_arr(remote_witnesses[i]));
+	}
 
 	/* Update the funding tx in the database with their signatures */
 	wallet_transaction_update(ld->wallet, fc->funding_tx);
