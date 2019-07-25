@@ -69,7 +69,8 @@ static void set_node_id(struct node_id *id)
 #define eq_struct_set(p1, p2, field, type)						\
 	do {										\
 		ok &= (!(p1) && !(p2)) || ((p1) && (p2));				\
-		if (ok && (p1))								\
+		ok &= (!(p1)->field && !(p2)->field) || ((p1)->field && (p2)->field);	\
+		if (ok && (p1) && (p1)->field)						\
 			for (size_t i = 0; i < tal_count((p1)->field); i++) {		\
 				struct type *_a, *_b;					\
 				_a = a->field[i];					\
