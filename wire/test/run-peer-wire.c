@@ -1000,8 +1000,8 @@ static struct msg_init *fromwire_struct_init(const tal_t *ctx, const void *p)
 	return s;
 }
 
-static bool tlv_opening_tlvs_option_upfront_shutdown_script_eq(const struct tlv_opening_tlvs_option_upfront_shutdown_script *a,
-						      const struct tlv_opening_tlvs_option_upfront_shutdown_script *b)
+static bool option_upfront_shutdown_script_eq(const struct tlv_opening_tlvs_option_upfront_shutdown_script *a,
+					       const struct tlv_opening_tlvs_option_upfront_shutdown_script *b)
 {
 	return (!a && !b)
 		|| (a && b && eq_var(a, b, shutdown_scriptpubkey));
@@ -1010,8 +1010,10 @@ static bool tlv_opening_tlvs_option_upfront_shutdown_script_eq(const struct tlv_
 static bool opening_tlv_eq(const struct tlv_opening_tlvs *a,
 			   const struct tlv_opening_tlvs *b)
 {
-	return tlv_opening_tlvs_option_upfront_shutdown_script_eq(a->option_upfront_shutdown_script,
-			b->option_upfront_shutdown_script);
+	return (!a && !b) ||
+		(a && b &&
+		 option_upfront_shutdown_script_eq(a->option_upfront_shutdown_script,
+						   b->option_upfront_shutdown_script));
 }
 
 static bool channel_announcement_eq(const struct msg_channel_announcement *a,
