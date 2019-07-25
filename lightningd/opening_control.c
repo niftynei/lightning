@@ -1142,7 +1142,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 				    channel->dbid);
 
 	/* Since the REMOTE will have our sigs after this point (and will
-	 * be able to broadcast the transaction) we should mark the 
+	 * be able to broadcast the transaction) we should mark the
 	 * UTXO's as 'broadcast' and start watching for the transaction */
 	if (opener == LOCAL) {
 		// TODO: mark utxos as 'broadcast'? they're still rbf'able

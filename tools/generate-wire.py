@@ -26,6 +26,7 @@ import os
 import re
 import sys
 
+
 # Generator to give us one line at a time.
 def next_line(args, lines):
     if lines is None:
