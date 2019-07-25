@@ -48,6 +48,11 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 
 #ifdef EXPERIMENTAL_FEATURES
 /**
+ * Given a witness_stack, convert its set of witness_elements
+ * into a *u8 array. Needed for adding witnesses to tx's */
+u8 **witness_stack_to_arr(struct witness_stack *stack);
+
+/**
  * Given an amount of change, a bip32_base and the change keyindex,
  * build an output_info set. Useful helper for establishing channels
  * under the v2 channel estamblishment protocol.

@@ -1472,19 +1472,6 @@ static void sign_all_inputs(struct bitcoin_tx *tx, struct utxo **utxos)
 }
 
 #ifdef EXPERIMENTAL_FEATURES
-static u8 **witness_stack_to_arr(struct witness_stack *stack)
-{
-	u8 **witnesses;
-	size_t i;
-	witnesses = tal_arr(stack, u8 *, tal_count(stack->witness_element));
-
-	for (i = 0; i < tal_count(stack->witness_element); i++) {
-		witnesses[i] = stack->witness_element[i]->witness;
-	}
-
-	return witnesses;
-}
-
 static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 						   struct client *c,
 						   const u8 *msg_in)

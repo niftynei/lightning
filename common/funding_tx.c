@@ -56,6 +56,19 @@ struct bitcoin_tx *funding_tx(const tal_t *ctx,
 }
 
 #ifdef EXPERIMENTAL_FEATURES
+u8 **witness_stack_to_arr(struct witness_stack *stack)
+{
+	u8 **witnesses;
+	size_t i;
+	witnesses = tal_arr(stack, u8 *, tal_count(stack->witness_element));
+
+	for (i = 0; i < tal_count(stack->witness_element); i++) {
+		witnesses[i] = stack->witness_element[i]->witness;
+	}
+
+	return witnesses;
+}
+
 struct output_info **build_outputs(const tal_t *ctx,
 				  const struct ext_key *bip32_base,
 				  u32 change_keyindex,
