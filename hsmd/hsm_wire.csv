@@ -80,7 +80,7 @@ msgdata,hsm_dual_funding_sigs,our_pubkey,pubkey,
 msgdata,hsm_dual_funding_sigs,their_pubkey,pubkey,
 msgdata,hsm_dual_funding_sigs,num_witnesses,u16,
 msgdata,hsm_dual_funding_sigs,witness_stack,witness_stack,num_witnesses
-msgdata,hsm_dual_funding_sigs,opener,e:side,
+msgdata,hsm_dual_funding_sigs,opener,enum side,
 
 msgtype,hsm_dual_funding_sigs_reply,42
 msgdata,hsm_dual_funding_sigs_reply,num_witnesses,u16,
