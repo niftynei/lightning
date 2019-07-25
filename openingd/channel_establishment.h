@@ -9,6 +9,6 @@ enum role {
 	OPENER,
 	ACCEPTER,
 	NUM_ROLES
-}
+};
 
 #endif /* LIGHTNING_OPENINGD_CHANNEL_ESTABLISHMENT_H */
