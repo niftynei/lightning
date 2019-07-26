@@ -2560,7 +2560,10 @@ static u8 *handle_peer_in(struct state *state)
 		return fundee_channel(state, msg);
 
 	case WIRE_OPEN_CHANNEL2:
-		return fundee_channel2(state, msg);
+		msg =fundee_channel2(state, msg);
+               /* We want to keep openingd alive, since we're not done yet */
+               wire_sync_write(REQ_FD, take(msg));
+               return NULL; // hacking
 	/* These are handled by handle_peer_gossip_or_error. */
 	case WIRE_PING:
 	case WIRE_PONG:
