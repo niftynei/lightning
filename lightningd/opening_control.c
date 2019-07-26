@@ -986,6 +986,7 @@ static void accepter_select_coins(struct subd *openingd,
 			   &payload->our_max_funding);
 
 	plugin_hook_call_openchannel2(openingd->ld, payload, payload);
+	return;
 
 failed:
 	subd_release_channel(openingd, uc);
