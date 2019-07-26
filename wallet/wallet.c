@@ -229,10 +229,10 @@ static struct utxo **wallet_get_ordered_confirmed_utxos(const tal_t *ctx, struct
 	sqlite3_stmt *stmt;
 
 	if (state == output_state_any)
-		stmt = db_select_prepare(w->db, UTXO_FIELDS " FROM outputs WHERE blockheight IS NOT NULL ORDER BY value DESC");
+		stmt = db_select_prepare(w->db, UTXO_FIELDS " FROM outputs WHERE confirmation_height IS NOT NULL ORDER BY value DESC");
 	else {
 		stmt = db_select_prepare(w->db, UTXO_FIELDS
-					 " FROM outputs WHERE status=?1 AND blockheight IS NOT NULL ORDER BY value DESC");
+					 " FROM outputs WHERE status=?1 AND confirmation_height IS NOT NULL ORDER BY value DESC");
 		sqlite3_bind_int(stmt, 1, output_status_in_db(state));
 	}
 
