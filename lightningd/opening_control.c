@@ -772,10 +772,10 @@ static void openchannel2_hook_serialize(struct openchannel2_hook_payload *payloa
  */
 static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 			    const struct utxo **utxos,
-			    struct input_info **inputs)
+			    struct input_info ***inputs)
 {
 	size_t i = 0;
-	inputs = tal_arr(ctx, struct input_info *, 0);
+	*inputs = tal_arr(ctx, struct input_info *, 0);
 
 	for (i = 0; i < tal_count(utxos); i++) {
 		struct input_info *input = tal(inputs, struct input_info);
@@ -798,7 +798,7 @@ static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 		if (utxos[i]->is_p2sh)
 			input->script = derive_redeemscript(w, utxos[i]->keyindex);
 
-		tal_arr_expand(&inputs, input);
+		tal_arr_expand(inputs, input);
 	}
 }
 
@@ -880,7 +880,7 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 
 		fc->accepter_funding = AMOUNT_SAT(0);
 	}
-	utxos_to_inputs(fc, w, fc->wtx->utxos, fc->our_inputs);
+	utxos_to_inputs(fc, w, fc->wtx->utxos, &fc->our_inputs);
 
 	/* Do we have change? */
 	if (amount_sat_greater(fc->local_change, AMOUNT_SAT(0))) {
@@ -2098,7 +2098,7 @@ static struct command_result *json_fund_channel(struct command *cmd,
 
 #ifdef EXPERIMENTAL_FEATURES
 	use_v2 = feature_offered(peer->localfeatures, LOCAL_USE_CHANNEL_EST_V2);
-	utxos_to_inputs(fc, cmd->ld->wallet, fc->wtx->utxos, fc->our_inputs);
+	utxos_to_inputs(fc, cmd->ld->wallet, fc->wtx->utxos, &fc->our_inputs);
 #else
 	use_v2 = false;
 #endif
