@@ -108,6 +108,23 @@ struct funding_channel {
 	struct bitcoin_tx *funding_tx;
 };
 
+static struct funding_channel *
+new_funding_channel(const tal_t *ctx,
+		    struct uncommitted_channel *uc,
+		    const struct lightningd *ld,
+		    bool in_flight)
+{
+	struct funding_channel *fc = tal(ctx, struct funding_channel);
+	fc->cmd = NULL;
+	fc->uc = uc;
+	fc->inflight = in_flight;
+	fc->wtx = tal(fc, struct wallet_tx);
+	wtx_init(NULL, fc->wtx, get_chainparams(ld)->max_funding);
+	fc->accepter_funding = AMOUNT_SAT(0);
+
+	return fc;
+}
+
 struct openchannel_hook_payload {
 	struct subd *openingd;
 	struct amount_sat funding_satoshis;
@@ -897,27 +914,26 @@ static void accepter_select_coins(struct subd *openingd,
 {
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat, htlc_minimum_msat;
+	struct funding_channel *fc;
 	u32 feerate_per_kw;
 	u16 to_self_delay, max_accepted_htlcs, contrib_count;
 	u8 *shutdown_scriptpubkey;
 
 	struct wallet *w = openingd->ld->wallet;
-	struct funding_channel *fc = tal(uc, struct funding_channel);
 	struct openchannel2_hook_payload *payload = tal(openingd->ld,
 						       struct openchannel2_hook_payload);
 
 	if (peer_active_channel(uc->peer)) {
 		subd_send_msg(openingd,
 			      take(towire_opening_got_offer_reply(NULL,
-					                          "Already have active channel")));
+					  "Already have active channel")));
 		return;
 	}
 
-	fc->cmd = NULL;
-	fc->uc = NULL;
-	fc->inflight = true;
-	fc->wtx = tal(fc, struct wallet_tx);
-	wtx_init(NULL, fc->wtx, get_chainparams(openingd->ld)->max_funding);
+	/* Set up a funding channel struct */
+	uc->fc = new_funding_channel(uc, uc, openingd->ld, true);
+	fc = uc->fc;
+
 
 	if (!fromwire_opening_dual_open_started(msg, msg,
 		                                &fc->opener_funding,
