@@ -2152,7 +2152,7 @@ static void verify_input_scripts(struct state *state,
 static u8 *fundee_channel2(struct state *state,
 			   const u8 *msg)
 {
-	struct tlv_opening_tlvs *opening_tlv = tal(state, struct tlv_opening_tlvs);
+	struct tlv_opening_tlvs *opening_tlv = tlv_opening_tlvs_new(tmpctx);
 	u8 channel_flags;
 
 	state->df = tal(state, struct dual_funding_state);

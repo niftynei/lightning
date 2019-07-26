@@ -900,6 +900,7 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 						fc->accepter_funding,
 						(const struct input_info **)fc->our_inputs,
 						(const struct output_info **)fc->our_outputs);
+	fprintf(stdout, "%d: %s\n", __LINE__, __FILE__);
 	subd_send_msg(openingd, take(msg));
 	return;
 }
