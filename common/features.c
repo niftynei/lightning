@@ -7,7 +7,10 @@ static const u32 our_localfeatures[] = {
 	LOCAL_DATA_LOSS_PROTECT,
 	LOCAL_INITIAL_ROUTING_SYNC,
 	LOCAL_UPFRONT_SHUTDOWN_SCRIPT,
-	LOCAL_GOSSIP_QUERIES
+	LOCAL_GOSSIP_QUERIES,
+#ifdef EXPERIMENTAL_FEATURES
+	LOCAL_USE_CHANNEL_EST_V2,
+#endif
 };
 
 static const u32 our_globalfeatures[] = {
