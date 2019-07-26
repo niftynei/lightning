@@ -864,8 +864,10 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 			fc->wtx->utxos = tal_free(fc->wtx->utxos);
 			fc->local_change = AMOUNT_SAT(0);
 		}
-	} else
+	} else {
 		fc->local_change = AMOUNT_SAT(0);
+		fc->wtx->utxos = NULL;
+	}
 
 	/* Either no utxos were found, or we weren't funding it anyway */
 	if (!fc->wtx->utxos) {
