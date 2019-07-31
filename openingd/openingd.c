@@ -558,7 +558,7 @@ static void check_channel_id(struct state *state,
 	 */
 	if (!channel_id_eq(id_in, original_channel_id))
 		peer_failed(state->pps, id_in,
-			    "channel establishment: ids don't match: sent %s got %s",
+			    "channel establishment: ids don't match: expected %s got %s",
 			    type_to_string(tmpctx, struct channel_id, original_channel_id),
 			    type_to_string(tmpctx, struct channel_id, id_in));
 }
