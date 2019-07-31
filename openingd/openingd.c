@@ -604,7 +604,7 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 				       struct amount_sat *funding_tx_sats)
 {
 	size_t i = 0;
-	struct amount_sat funding, change;
+	struct amount_sat funding, other_outputs;
 	bool has_change_address;
 
 	/** TODO: add BOLT reference when merged
@@ -647,7 +647,7 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 			    &state->channel_id,
 			    "Peer sent malleable (non-Segwit) input.");
 
-	change = AMOUNT_SAT(0);
+	other_outputs = AMOUNT_SAT(0);
 	for (i = 0; i < tal_count(remote_outputs); i++) {
 		if (amount_sat_eq(AMOUNT_SAT(0), remote_outputs[i]->output_satoshis)) {
 			if (has_change_address)
@@ -657,11 +657,11 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 
 			has_change_address = true;
 		}
-		if (!amount_sat_add(&change, change, remote_outputs[i]->output_satoshis))
+		if (!amount_sat_add(&other_outputs, other_outputs, remote_outputs[i]->output_satoshis))
 			status_failed(STATUS_FAIL_INTERNAL_ERROR,
-				      "Overflow in remote change satoshis %s + %s",
+				      "Overflow in remote outher_outputs satoshis %s + %s",
 			               type_to_string(tmpctx, struct amount_sat,
-						      &change),
+						      &other_outputs),
 			               type_to_string(tmpctx, struct amount_sat,
 				                      &remote_outputs[i]->output_satoshis));
 
@@ -680,12 +680,12 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 	* - if the total `input_info`.`satoshis` is less than the total `output_info`.`satoshis`
 	*   - MUST fail the channel.
 	*/
-	if (!amount_sat_sub(funding_tx_sats, funding, change))
+	if (!amount_sat_sub(funding_tx_sats, funding, other_outputs))
 		peer_failed(state->pps,
 			    &state->channel_id,
 			    "Total remote input satoshi less than output satoshis. change:%s inputs:%s",
 			    type_to_string(tmpctx, struct amount_sat,
-					   &change),
+					   &other_outputs),
 			    type_to_string(tmpctx, struct amount_sat,
 					   &funding));
 
