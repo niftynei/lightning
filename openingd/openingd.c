@@ -689,17 +689,15 @@ static bool check_remote_input_outputs(const tal_t *ctx,
 			    type_to_string(tmpctx, struct amount_sat,
 					   &funding));
 
-	/* If you can't do basic math on your end, we don't want to open a channel
-	 * with you */
-	if (!amount_sat_eq(*funding_tx_sats, stated_funding_sats))
+	if (!amount_sat_greater(*funding_tx_sats, stated_funding_sats))
 		peer_failed(state->pps,
 			    &state->channel_id,
-			    "Remote's input amounts don't add up to stated "
-			    "funding amount (actual: %s, they said: %s)",
+			    "Input amounts won't afford "
+			    "funding amount (desired: %s, provided: %s).",
 			    type_to_string(tmpctx, struct amount_sat,
-					   funding_tx_sats),
+					   &stated_funding_sats),
 			    type_to_string(tmpctx, struct amount_sat,
-					   &stated_funding_sats));
+					   funding_tx_sats));
 
 	return true;
 }
