@@ -7,8 +7,8 @@
 #include <ccan/ptrint/ptrint.h>
 #include <common/key_derive.h>
 #include <common/permute_tx.h>
-#include <common/type_to_string.h>
 #include <common/utxo.h>
+#include <common/utils.h>
 
 #ifndef SUPERVERBOSE
 #define SUPERVERBOSE(...)
