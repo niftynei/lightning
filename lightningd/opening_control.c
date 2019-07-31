@@ -979,7 +979,7 @@ static void accepter_select_coins(struct subd *openingd,
 	 *  - MAY send zero inputs and/or outputs.
 	 */
 	/* max allowed is remote's contrib_count minus one change output */
-	payload->max_allowed_inputs = contrib_count - 1;
+	payload->max_allowed_inputs = contrib_count <= 2 ? 1 : contrib_count - 1;
 
 	/* Calculate the max we could contribute to this channel */
 	wallet_compute_max(tmpctx, w, payload->max_allowed_inputs,
