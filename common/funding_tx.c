@@ -251,18 +251,19 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 	if (!amount_sat_sub(&opener_change, opener_total_sat, *opener_funding))
 		return NULL;
 
+	change_output = find_change_output(opener_outputs);
 	if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
-		/* Check that there's a change output */
-		if (!find_change_output(opener_outputs)) {
-			/* This should definitely work because we just subtracted it out above */
-			assert(amount_sat_add(opener_funding, *opener_funding, opener_change));
+		if (!change_output && amount_sat_greater(opener_change, AMOUNT_SAT(0))) {
+			/* If there's no change output, we put the remainder into
+			 * the funding output. TODO: add to spec */
+			assert(amount_sat_add(opener_funding,
+					      *opener_funding, opener_change));
 			opener_change = AMOUNT_SAT(0);
 		}
 		goto build_tx;
 	}
 
-	/* Try removing opener's change output */
-	change_output = find_change_output(opener_outputs);
+	/* Try removing opener's change output to fit fees */
 	if (change_output) {
 		scriptlen = tal_count(change_output->script);
 		weight -= (8 + scriptlen + varint_size(scriptlen)) * 4;
@@ -287,11 +288,15 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 build_tx:
 	input_count = tal_count(opener_inputs) + tal_count(accepter_inputs);
 	/* opener + accepter outputs plus the funding output */
-	output_count = tal_count(opener_outputs)
-		+ tal_count(accepter_outputs) + 1;
+	output_count = tal_count(opener_outputs) +
+		tal_count(accepter_outputs) + 1;
 
-	if (amount_sat_eq(AMOUNT_SAT(0), opener_change))
+	/* If they had supplied a change output, but we removed it because
+	 * remove it from the count */
+	if (change_output && amount_sat_eq(AMOUNT_SAT(0), opener_change)) {
 		output_count -= 1;
+		assert(output_count > 0);
+	}
 
 	tx = bitcoin_tx(ctx, input_count, output_count);
 
