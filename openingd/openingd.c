@@ -567,6 +567,8 @@ static bool check_remote_inputs(struct input_info **remote_inputs,
 				struct amount_sat *input_funding)
 {
 	size_t i = 0;
+
+	*input_funding = AMOUNT_SAT(0);
 	for (i = 0; i < tal_count(remote_inputs); i++) {
 
 		if (!amount_sat_add(input_funding, *input_funding, remote_inputs[i]->input_satoshis))

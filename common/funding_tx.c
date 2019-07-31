@@ -100,6 +100,7 @@ static size_t calculate_input_weights(struct input_info **inputs,
 	u64 scriptlen;
 	size_t weight = 0, i = 0;
 
+	*total = AMOUNT_SAT(0);
 	for (i = 0; i < tal_count(inputs); i++) {
 		/* prev_out hash + index + sequence */
 		input_weight = (32 + 4 + 4) * 4;
