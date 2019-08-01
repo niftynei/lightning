@@ -2226,9 +2226,7 @@ static u8 *fundee_channel2(struct state *state,
 
 static u8 *accept_dual_fund_request(struct state *state,
 				    char* err_reason,
-				    struct amount_sat our_funding,
-				    struct input_info **our_inputs,
-				    struct output_info **our_outputs)
+				    struct amount_sat our_funding)
 {
 	struct channel_id id_in;
 	struct bitcoin_tx *funding_tx;
@@ -2250,7 +2248,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	/* OK, we accept! */
 	/* FIXME: add handling for option_upfront_shutdown_script ?? */
-	msg = towire_accept_channel2(state, &state->channel_id,
+	msg = towire_accept_channel2(tmpctx, &state->channel_id,
 				     our_funding,
 				     state->localconf.dust_limit,
 				     state->localconf.max_htlc_value_in_flight,
@@ -2278,7 +2276,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	/* The next message should be "funding_compose" which tells us the funding
 	 * inputs and outputs they've selected. */
-	if (!fromwire_funding_compose(tmpctx, msg, &id_in,
+	if (!fromwire_funding_compose(state, msg, &id_in,
 				      &state->remoteconf.channel_reserve,
 				      &state->df->their_inputs,
 				      &state->df->their_outputs))
@@ -2297,9 +2295,6 @@ static u8 *accept_dual_fund_request(struct state *state,
 					state->df->contrib_count,
 					&opener_funding))
 		return NULL;
-
-	state->df->our_inputs = our_inputs;
-	state->df->our_outputs = our_outputs;
 
 	/* Build the funding transaction, confirming totals for reserve etc */
 	funding_tx = dual_funding_funding_tx(state,
@@ -2689,7 +2684,6 @@ static u8 *handle_master_in(struct state *state)
 	struct ext_key bip32_base;
 	char *err_reason;
 	struct input_info **our_inputs;
-	struct output_info **our_outputs;
 	struct witness_stack **our_witnesses;
 	bool use_v2;
 
@@ -2745,16 +2739,14 @@ static u8 *handle_master_in(struct state *state)
 		negotiation_aborted(state, true, "Channel open canceled by RPC");
 		return NULL;
 	case WIRE_OPENING_DUAL_OPEN_CONTINUE:
-		if (!fromwire_opening_dual_open_continue(msg, msg,
+		if (!fromwire_opening_dual_open_continue(state, msg,
 							 &err_reason,
 							 &our_funding,
-							 &our_inputs,
-					                 &our_outputs))
+							 &state->df->our_inputs,
+					                 &state->df->our_outputs))
 			master_badmsg(WIRE_OPENING_FUNDER_START, msg);
 		msg = accept_dual_fund_request(state, err_reason,
-					       our_funding,
-					       our_inputs,
-					       our_outputs);
+					       our_funding);
 		/* We want to keep openingd alive, since we're not done yet */
 		wire_sync_write(REQ_FD, take(msg));
 		return NULL;
