@@ -594,8 +594,7 @@ static bool check_remote_inputs(struct input_info **remote_inputs,
 }
 
 
-static bool check_remote_input_outputs(const tal_t *ctx,
-				       struct state *state,
+static bool check_remote_input_outputs(struct state *state,
 				       enum role remote_role,
 				       struct input_info **remote_inputs,
 				       struct output_info **remote_outputs,
@@ -1103,8 +1102,7 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 
 	/* Prelim check that their inputs outputs are sensible. We'll actually
 	 * look all of these up in master after the break */
-	if (!check_remote_input_outputs(tmpctx, state,
-					ACCEPTER,
+	if (!check_remote_input_outputs(state, ACCEPTER,
 					state->df->their_inputs,
 					state->df->their_outputs,
 					state->df->accepter_funding,
@@ -2292,8 +2290,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 
 	/* Prelim check that their inputs/outputs are sensible. We'll actually
 	 * look all of these up in master after the break */
-	if (!check_remote_input_outputs(tmpctx, state,
-					OPENER,
+	if (!check_remote_input_outputs(state, OPENER,
 					state->df->their_inputs,
 					state->df->their_outputs,
 					state->funding,
