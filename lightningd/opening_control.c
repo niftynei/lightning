@@ -997,22 +997,24 @@ failed:
 static void accepter_broadcast_failed_or_succeeded(struct channel *channel,
 						   int exitstatus, const char *msg)
 {
-	struct funding_channel *fc = channel->peer->uncommitted_channel->fc;
 	char *str;
 
-	if (exitstatus == 0) {
-		str = tal_fmt(NULL, "Successfully broadcast funding tx %s. Waiting for lockin",
-			      type_to_string(tmpctx, struct bitcoin_txid, &channel->funding_txid));
-		opening_channel_set_billboard(channel->peer->uncommitted_channel, false, str);
-	} else {
+	if (exitstatus == 0)
+		str = tal_fmt(NULL, "Successfully broadcast funding tx %s."
+			      " Waiting for lockin",
+			      type_to_string(tmpctx,
+				             struct bitcoin_txid,
+					     &channel->funding_txid));
+	else
 		str = tal_fmt(NULL, "ERR: Unable to broadcast funding tx %s.",
-			      type_to_string(tmpctx, struct bitcoin_txid, &channel->funding_txid));
-		opening_channel_set_billboard(channel->peer->uncommitted_channel, false, str);
-	}
-	tal_free(str);
+			      type_to_string(tmpctx,
+					     struct bitcoin_txid,
+					     &channel->funding_txid));
+
+	channel_set_billboard(channel, false, take(str));
 
 	/* Frees fc too */
-	tal_free(fc->uc);
+	tal_free(channel->peer->uncommitted_channel);
 }
 
 static void opening_funder_compose_rcvd(struct subd *openingd,
