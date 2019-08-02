@@ -1191,6 +1191,10 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	// TODO: mark utxos as 'broadcast'? they're still rbf'able
 	wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
 
+	/* Tell plugins about the success */
+	notify_channel_opened(ld, &channel->peer->id, &channel->funding,
+			      &channel->funding_txid, &channel->remote_funding_locked);
+
 	/* Start normal channel daemon. */
 	peer_start_channeld(channel, pps, funding_signed, false);
 
