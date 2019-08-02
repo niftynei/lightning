@@ -64,7 +64,8 @@ u8 **witness_stack_to_arr(struct witness_stack *stack)
 	witnesses = tal_arr(stack, u8 *, tal_count(stack->witness_element));
 
 	for (i = 0; i < tal_count(stack->witness_element); i++) {
-		witnesses[i] = stack->witness_element[i]->witness;
+		u8 *witness = stack->witness_element[i]->witness;
+		witnesses[i] = tal_dup_arr(witnesses, u8, witness, tal_count(witness), 0);
 	}
 
 	return witnesses;
