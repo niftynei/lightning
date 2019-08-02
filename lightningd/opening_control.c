@@ -936,7 +936,7 @@ static void accepter_select_coins(struct subd *openingd,
 	fc = uc->fc;
 
 
-	if (!fromwire_opening_dual_open_started(msg, msg,
+	if (!fromwire_opening_dual_open_started(fc, msg,
 		                                &fc->opener_funding,
 						&contrib_count,
 						&fc->channel_flags,
@@ -1070,7 +1070,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	/* This is a new channel_info.their_config so set its ID to 0 */
 	channel_info.their_config.id = 0;
 
-	if (!fromwire_opening_dual_funding_signed(reply, reply,
+	if (!fromwire_opening_dual_funding_signed(fc, reply,
 						  &pps,
 						  &local_commit,
 						  &remote_commit_sig,
@@ -1104,7 +1104,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	 * - MUST set `witness` to the serialized witness data for each of its
 	 *   inputs, in funding transaction order. FIXME: link to funding tx order
          */
-	msg = towire_hsm_dual_funding_sigs(fc,
+	msg = towire_hsm_dual_funding_sigs(tmpctx,
 					   fc->wtx->utxos,
 					   feerate_funding,
 					   fc->opener_funding,
@@ -1120,8 +1120,8 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 
 	wire_sync_write(openingd->ld->hsm_fd, take(msg));
 	msg = wire_sync_read(fc, openingd->ld->hsm_fd);
-	if (!fromwire_hsm_dual_funding_sigs_reply(msg, msg, &our_witnesses,
-						 &fc->funding_tx)) {
+	if (!fromwire_hsm_dual_funding_sigs_reply(fc, msg, &our_witnesses,
+						  &fc->funding_tx)) {
 		log_broken(uc->log, "HSM gave bad dual_funding_sigs reply %s",
 		           tal_hex(msg, msg));
 		goto failed;
@@ -1131,8 +1131,8 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	bitcoin_txid(fc->funding_tx, &computed_funding_txid);
 	assert(bitcoin_txid_eq(&computed_funding_txid, &funding_txid));
 
-	/* Steals fields from uc */
 	local_funding = opener == LOCAL ? fc->opener_funding : fc->accepter_funding;
+	/* Steals fields from uc */
 	channel = wallet_commit_channel(ld, uc,
 					local_commit,
 					&remote_commit_sig,
