@@ -1048,6 +1048,22 @@ failed:
 	tal_free(uc);
 }
 
+static bool check_totals(struct log *log,
+			 struct amount_sat tx_funding_amt,
+			 struct amount_sat accepter_amt,
+			 struct amount_sat opener_amt)
+{
+	/* Check that everything adds up ok */
+	struct amount_sat check_total;
+
+	if (!amount_sat_add(&check_total, opener_amt, accepter_amt))
+		log_broken(log, "Overflow in addition %s with %s",
+			   type_to_string(tmpctx, struct amount_sat, &opener_amt),
+			   type_to_string(tmpctx, struct amount_sat, &accepter_amt));
+
+	return amount_sat_eq(tx_funding_amt, check_total);
+}
+
 static void opening_dual_commitment_secured(struct subd *openingd,
 					    const u8 *reply,
 					    const int *fds,
@@ -1133,7 +1149,19 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	bitcoin_txid(fc->funding_tx, &computed_funding_txid);
 	assert(bitcoin_txid_eq(&computed_funding_txid, &funding_txid));
 
+	/* Populate local_ + total_funding */
 	local_funding = opener == LOCAL ? fc->opener_funding : fc->accepter_funding;
+	total_funding = bitcoin_tx_output_get_amount(fc->funding_tx, funding_txout);
+
+	if (!check_totals(uc->log, total_funding,
+				fc->opener_funding, fc->accepter_funding))
+		log_broken(uc->log, "Internal error: opener (%s) + accepter (%s) funding "
+			   " don't add up to total (%s).",
+			   type_to_string(tmpctx, struct amount_sat, &fc->opener_funding),
+			   type_to_string(tmpctx, struct amount_sat, &fc->accepter_funding),
+			   type_to_string(tmpctx, struct amount_sat, &total_funding));
+
+
 	/* Steals fields from uc */
 	channel = wallet_commit_channel(ld, uc,
 					local_commit,
