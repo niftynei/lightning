@@ -1518,6 +1518,9 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 				     &total_funding,
 				     &input_map);
 
+	if (!tx)
+		return bad_req_fmt(conn, c, msg_in, "Unable to create valid funding tx.");
+
 	/* For the input_map, the opener_inputs are added before the accepter's */
 	offset = opener == LOCAL ? 0 : tal_count(accepter_inputs) - 1;
 	witnesses = tal_arr(tmpctx, struct witness_stack *, tal_count(our_utxos));
