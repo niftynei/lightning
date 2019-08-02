@@ -1551,10 +1551,10 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	/* Go ahead and fill in all of the witness data for this,
 	 * while we've still got the input index map around */
 	offset = opener == REMOTE ? 0 : tal_count(accepter_inputs) - 1;
-	for (i = 0; i < tal_count(their_witnesses); i++) {
-		bitcoin_tx_input_set_witness(tx, ptr2int(input_map[i + offset]),
-				             witness_stack_to_arr(their_witnesses[i]));
-	}
+	for (i = 0; i < tal_count(their_witnesses); i++)
+		bitcoin_tx_input_set_witness(tx,
+				             ptr2int(input_map[i + offset]),
+					     witness_stack_to_arr(their_witnesses[i]));
 
 	return req_reply(conn, c,
 			 take(towire_hsm_dual_funding_sigs_reply(NULL,
