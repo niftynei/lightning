@@ -4,6 +4,7 @@
 #include <bitcoin/script.h>
 #include <bitcoin/tx.h>
 #include <bitcoin/varint.h>
+#include <ccan/cast/cast.h>
 #include <ccan/ptrint/ptrint.h>
 #include <common/key_derive.h>
 #include <common/permute_tx.h>
@@ -309,13 +310,8 @@ build_tx:
 	assert(amount_sat_add(total_funding, *total_funding, accepter_funding));
 
 	const void *o_map[output_count];
-	const void *i_map[input_count];
-	for (i = 0; i < output_count; i++) {
+	for (i = 0; i < output_count; i++)
 		o_map[i] = int2ptr(i);
-	}
-	for (i = 0; i < input_count; i++) {
-		i_map[i] = int2ptr(i);
-	}
 
 	bitcoin_tx_add_output(tx, scriptpubkey_p2wsh(tx, wscript), total_funding);
 
@@ -323,23 +319,31 @@ build_tx:
 	add_outputs(tx, opener_outputs, &opener_change);
 	add_outputs(tx, accepter_outputs, NULL);
 
-	permute_outputs(tx, NULL, o_map);
-
-	for (i = 0; i < output_count; i++) {
-		if (o_map[i] == int2ptr(0)) {
-			*outnum = i;
-			break;
-		}
-	}
-
 	/* Note that hsmd depends on the opener's inputs
 	 * being added before the accepter's inputs */
 	add_inputs(tx, opener_inputs);
 	add_inputs(tx, accepter_inputs);
 
-	permute_inputs(tx, i_map);
-	if (input_map != NULL)
-		*input_map = (void **)&i_map;
+	/* Sort outputs */
+	permute_outputs(tx, NULL, o_map);
+
+	for (i = 0; i < output_count; i++) {
+		if (o_map[i] == int2ptr(0)) {
+			if (outnum)
+				*outnum = i;
+			break;
+		}
+	}
+
+	/* Sort inputs */
+	if (input_map) {
+		*input_map = tal_arr(tx, void *, input_count);
+		for (i = 0; i < input_count; i++)
+			*input_map[i] = int2ptr(i);
+		permute_inputs(tx, cast_const2(const void **, *input_map));
+	} else
+		permute_inputs(tx, NULL);
+
 
 	assert(bitcoin_tx_check(tx));
 	return tx;
