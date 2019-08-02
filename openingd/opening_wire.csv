@@ -135,7 +135,7 @@ msgdata,opening_fundee,shutdown_len,u16,
 msgdata,opening_fundee,shutdown_scriptpubkey,u8,shutdown_len
 
 # openingd->master: they initiated a dual-fundable channel
-# 1/7
+# 1/5
 msgtype,opening_dual_open_started,6200
 msgdata,opening_dual_open_started,their_funding,amount_sat,
 msgdata,opening_dual_open_started,contrib_count,u16,
@@ -152,7 +152,7 @@ msgdata,opening_dual_open_started,shutdown_len,u16,
 msgdata,opening_dual_open_started,shutdown_scriptpubkey,u8,shutdown_len
 
 # master->openingd: what we'd like to put into the channel (or a fail)
-# 2/7
+# 2/5
 #include <wire/gen_peer_wire.h>
 msgtype,opening_dual_open_continue,6201
 # if there's a problem trying to open this, we should fail
@@ -164,7 +164,7 @@ msgdata,opening_dual_open_continue,num_our_outputs,u16,
 msgdata,opening_dual_open_continue,our_outputs,output_info,num_our_outputs
 
 # openingd->master: their inputs + outputs
-# 3/7
+# 3/5
 msgtype,opening_dual_accepted,6202
 msgdata,opening_dual_accepted,remote_funding_pubkey,pubkey,
 msgdata,opening_dual_accepted,num_their_inputs,u16,
@@ -173,11 +173,11 @@ msgdata,opening_dual_accepted,num_their_outputs,u16,
 msgdata,opening_dual_accepted,their_outputs,output_info,num_their_outputs
 
 # master->openingd: continue, opening.
-# 4/7
+# 4/5
 msgtype,opening_dual_accepted_reply,6203
 
 # openingd->master: their witness_stack, and signatures
-# 5/7
+# 5/5
 msgtype,opening_dual_funding_signed,6204
 msgdata,opening_dual_funding_signed,pps,per_peer_state,
 msgdata,opening_dual_funding_signed,first_commit,bitcoin_tx,
@@ -200,16 +200,10 @@ msgdata,opening_dual_funding_signed,shutdown_len,u16,
 msgdata,opening_dual_funding_signed,shutdown_scriptpubkey,u8,shutdown_len
 msgdata,opening_dual_funding_signed,opener,enum side,
 
-# master->openingd: 
-# 6/7
+# master->openingd: for when we're opener, send their witnesses back
 msgtype,opening_dual_funding_signed_reply,6205
 msgdata,opening_dual_funding_signed_reply,num_witnesses,u16,
 msgdata,opening_dual_funding_signed_reply,witness_stack,witness_stack,num_witnesses
-
-# openingd->master:
-# 7/7
-msgtype,opening_dual_funding_completed,6206
-msgdata,opening_dual_funding_completed,pps,per_peer_state,
 
 # openignd->master:
 # send the remote's (accepter) funding_tx sigs to master;

@@ -78,7 +78,6 @@ struct funding_channel {
 	struct amount_msat push;
 	struct amount_sat opener_funding, accepter_funding;
 	struct amount_sat local_change;
-	u32 feerate_funding;
 
 	u8 channel_flags;
 
@@ -639,7 +638,7 @@ static void opening_funder_finished(struct subd *openingd, const u8 *resp,
 		was_pending(command_fail(fc->cmd, LIGHTNINGD,
 					 "bad OPENING_FUNDER_REPLY %s",
 					 tal_hex(fc->cmd, resp)));
-		goto cleanup;
+		goto failed;
 	}
 	remote_commit->chainparams = get_chainparams(openingd->ld);
 	per_peer_state_set_fds_arr(pps, fds);
@@ -665,7 +664,7 @@ static void opening_funder_finished(struct subd *openingd, const u8 *resp,
 	if (!channel) {
 		was_pending(command_fail(fc->cmd, LIGHTNINGD,
 					 "Key generation failure"));
-		goto cleanup;
+		goto failed;
 	}
 
 	/* Watch for funding confirms */
@@ -679,13 +678,13 @@ static void opening_funder_finished(struct subd *openingd, const u8 *resp,
 		funding_success(channel);
 
 		peer_start_channeld(channel, pps, NULL, false);
-		goto cleanup;
+		goto failed;
 	}
 
 	if (!compose_and_broadcast_tx(ld, resp, fc, &channel_info,
 				      channel, &funding_txid,
 				      feerate))
-		goto cleanup;
+		goto failed;
 
 	/* Start normal channel daemon. */
 	peer_start_channeld(channel, pps, NULL, false);
@@ -694,7 +693,7 @@ static void opening_funder_finished(struct subd *openingd, const u8 *resp,
 	fc->uc->openingd = NULL;
 	return;
 
-cleanup:
+failed:
 	subd_release_channel(openingd, fc->uc);
 	fc->uc->openingd = NULL;
 	/* Frees fc too, and tmpctx */
@@ -1052,6 +1051,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 					    const int *fds,
 					    struct uncommitted_channel *uc)
 {
+	u8 *funding_signed, *msg;
 	struct channel_info channel_info;
 	struct bitcoin_txid funding_txid, computed_funding_txid;
 	u16 funding_txout;
@@ -1066,7 +1066,6 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	struct witness_stack **remote_witnesses, **our_witnesses;
 	struct amount_sat total_funding, local_funding;
 	struct funding_channel *fc = uc->fc;
-	u8 *msg;
 
 	/* This is a new channel_info.their_config so set its ID to 0 */
 	channel_info.their_config.id = 0;
@@ -1093,7 +1092,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 		log_broken(uc->log,
 			   "bad OPENING_DUAL_FUNDING_SIGNED %s",
 			   tal_hex(reply, reply));
-		goto cleanup;
+		goto failed;
 	}
 	per_peer_state_set_fds_arr(pps, fds);
 
@@ -1107,7 +1106,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
          */
 	msg = towire_hsm_dual_funding_sigs(fc,
 					   fc->wtx->utxos,
-					   fc->feerate_funding,
+					   feerate_funding,
 					   fc->opener_funding,
 					   fc->accepter_funding,
 					   (const struct input_info **)fc->their_inputs,
@@ -1125,7 +1124,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 						 &fc->funding_tx)) {
 		log_broken(uc->log, "HSM gave bad dual_funding_sigs reply %s",
 		           tal_hex(msg, msg));
-		goto cleanup;
+		goto failed;
 	}
 
 	/* Verify that it's the same as openingd computed */
@@ -1150,7 +1149,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	if (!channel) {
 		log_broken(uc->log,
 			   "Key generation failure");
-		goto cleanup;
+		goto failed;
 	}
 
 	/* Save the funding transaction to the database */
@@ -1174,42 +1173,15 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 		peer_start_channeld(channel, pps, NULL, false);
 	}
 
-	/* Send our signatures back over to the peer */
-	msg = towire_opening_dual_funding_signed_reply(fc,
-						       (const struct witness_stack **)our_witnesses);
-	subd_send_msg(openingd, take(msg));
-	return;
+	/* Needed for the funding_signed2 msg */
+	derive_channel_id(&fc->cid, &funding_txid, funding_txout);
 
-cleanup:
-	// TODO: the rest of this ??
-	tal_free(uc->fc);
-}
-
-static void opening_dual_fundee_finished(struct subd *openingd,
-				     const u8 *reply,
-				     const int *fds,
-				     struct uncommitted_channel *uc)
-{
-	struct lightningd *ld = openingd->ld;
-	struct bitcoin_txid funding_txid;
-	struct per_peer_state *pps;
-	struct channel *channel = NULL;
-
-	assert(tal_count(fds) == 2);
-
-	if (!fromwire_opening_dual_funding_completed(reply, reply,
-				     		     &pps)) {
-		log_broken(uc->log, "bad OPENING_DUAL_FUNDING_SIGNED %s",
-			   tal_hex(reply, reply));
-		// TODO: fix this. we're not longer at 'uncommitted' .. sort of?
-		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_FUNDING_SIGNED");
-		goto failed;
-	}
-
-	bitcoin_txid(uc->fc->funding_tx, &funding_txid);
+	/* We can let channeld send our signatures */
+	funding_signed = towire_funding_signed2(tmpctx, &fc->cid,
+		(const struct witness_stack **)our_witnesses);
 
 	/* Send it out and watch for confirms. */
-	broadcast_tx(ld->topology, channel, uc->fc->funding_tx,
+	broadcast_tx(ld->topology, channel, fc->funding_tx,
 		     accepter_broadcast_failed_or_succeeded);
 	channel_watch_funding(ld, channel);
 
@@ -1218,7 +1190,7 @@ static void opening_dual_fundee_finished(struct subd *openingd,
 	wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
 
 	/* Start normal channel daemon. */
-	peer_start_channeld(channel, pps, NULL, false);
+	peer_start_channeld(channel, pps, funding_signed, false);
 
 	subd_release_channel(openingd, uc);
 	uc->openingd = NULL;
@@ -1372,7 +1344,7 @@ static void opening_fundee_finished(struct subd *openingd,
 
 	/* Tell plugins about the success */
 	notify_channel_opened(ld, &channel->peer->id, &channel->funding,
-			   &channel->funding_txid, &channel->remote_funding_locked);
+			      &channel->funding_txid, &channel->remote_funding_locked);
 
 	/* On to normal operation! */
 	peer_start_channeld(channel, pps, funding_signed, false);
@@ -1697,16 +1669,13 @@ static unsigned int openingd_msg(struct subd *openingd,
 			tal_free(openingd);
 			return 0;
 		}
+		if (tal_count(fds) != 3)
+			return 3;
 		opening_dual_commitment_secured(openingd, msg, fds, uc);
 		return 0;
-	case WIRE_OPENING_DUAL_FUNDING_COMPLETED:
-		if (tal_count(fds) != 2)
-			return 2;
-		opening_dual_fundee_finished(openingd, msg, fds, uc);
-		return 0;
 	case WIRE_OPENING_DF_OPENER_FINISHED:
-		if (tal_count(fds) != 2)
-			return 2;
+		if (tal_count(fds) != 3)
+			return 3;
 		opening_dual_funder_finished(openingd, msg, fds, uc);
 		return 0;
 #endif /* EXPERIMENTAL_FEATURES */

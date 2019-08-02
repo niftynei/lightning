@@ -2521,21 +2521,6 @@ static u8 *continue_dual_fund_request(struct state *state)
 					          state->remote_upfront_shutdown_script,
 						  REMOTE);
 }
-
-static u8 *finish_dual_fund_request(struct state *state,
-				    struct witness_stack **our_witnesses)
-{
-	u8 *msg;
-
-	msg = towire_funding_signed2(tmpctx, &state->channel_id,
-				     (const struct witness_stack **)our_witnesses);
-	sync_crypto_write(state->pps, take(msg));
-
-	peer_billboard(false,
-		       "Incoming channel: funding_signed2 sent. Moving to broadcast tx");
-
-	return towire_opening_dual_funding_completed(tmpctx, state->pps);
-}
 #endif /* EXPERIMENTAL_FEATURES */
 
 /*~ Standard "peer sent a message, handle it" demuxer.  Though it really only
@@ -2684,7 +2669,6 @@ static u8 *handle_master_in(struct state *state)
 	struct ext_key bip32_base;
 	char *err_reason;
 	struct input_info **our_inputs;
-	struct witness_stack **our_witnesses;
 	bool use_v2;
 
 	switch (t) {
@@ -2754,11 +2738,6 @@ static u8 *handle_master_in(struct state *state)
 		if (!fromwire_opening_dual_accepted_reply(msg))
 			master_badmsg(WIRE_OPENING_DUAL_ACCEPTED_REPLY, msg);
 		return continue_dual_fund_request(state);
-	case WIRE_OPENING_DUAL_FUNDING_SIGNED_REPLY:
-		if (!fromwire_opening_dual_funding_signed_reply(msg, msg,
-								&our_witnesses))
-			master_badmsg(WIRE_OPENING_DUAL_FUNDING_SIGNED_REPLY, msg);
-		return finish_dual_fund_request(state, our_witnesses);
 	case WIRE_OPENING_DUAL_FAILED:
 		//TODO!!
 		return NULL;
@@ -2778,7 +2757,7 @@ static u8 *handle_master_in(struct state *state)
 	case WIRE_OPENING_DUAL_OPEN_STARTED:
 	case WIRE_OPENING_DUAL_ACCEPTED:
 	case WIRE_OPENING_DUAL_FUNDING_SIGNED:
-	case WIRE_OPENING_DUAL_FUNDING_COMPLETED:
+	case WIRE_OPENING_DUAL_FUNDING_SIGNED_REPLY:
 	case WIRE_OPENING_DF_OPENER_FINISHED:
 		break;
 	}
