@@ -1166,7 +1166,7 @@ static void opening_dual_commitment_secured(struct subd *openingd,
 	 * UTXO's as 'broadcast' and start watching for the transaction */
 	if (opener == LOCAL) {
 		// TODO: mark utxos as 'broadcast'? they're still rbf'able
-		wallet_confirm_utxos(ld->wallet, uc->fc->wtx->utxos);
+		wallet_confirm_utxos(ld->wallet, fc->wtx->utxos);
 		channel_watch_funding(ld, channel);
 
 		/* Start normal channel daemon. */
