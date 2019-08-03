@@ -64,6 +64,7 @@ struct output_info **build_outputs(const tal_t *ctx,
 /**
  * funding_tx: create a P2WSH funding transaction for a channel.
  * @ctx: context to tal from.
+ * @chainparams: (in) the params for the resulting transaction.
  * @outnum: (out) txout which is the funding output.
  * @feerate_kw_funding: (in) feerate for the funding transaction
  * @total_funding: (out) total funding amount for this transaction
@@ -78,6 +79,7 @@ struct output_info **build_outputs(const tal_t *ctx,
  * @input_map: (out) ordering of inputs, after being sorted.
  */
 struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
+	                                   const struct chainparams *chainparams,
 				           u16 *outnum,
 					   u32 feerate_kw_funding,
 				           struct amount_sat *opener_funding,

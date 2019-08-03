@@ -1113,7 +1113,7 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 	local_funding = state->funding;
 
 	/* Build the funding transaction */
-	funding_tx = dual_funding_funding_tx(state,
+	funding_tx = dual_funding_funding_tx(state, state->chainparams,
 					     &state->funding_txout,
 				   	     state->feerate_per_kw_funding,
 					     &local_funding, remote_funding,
@@ -2297,7 +2297,7 @@ static u8 *accept_dual_fund_request(struct state *state,
 		return NULL;
 
 	/* Build the funding transaction, confirming totals for reserve etc */
-	funding_tx = dual_funding_funding_tx(state,
+	funding_tx = dual_funding_funding_tx(state, state->chainparams,
 					     &state->funding_txout,
 				   	     state->feerate_per_kw_funding,
 					     &opener_funding, our_funding,

@@ -1507,6 +1507,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 		return bad_req(conn, c, msg_in);
 
 	tx = dual_funding_funding_tx(tmpctx,
+				     c->chainparams,
 				     NULL,
 				     feerate_kw_funding,
 				     &opener_funding,
