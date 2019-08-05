@@ -488,6 +488,7 @@ const void wallet_compute_max(const tal_t *ctx, struct wallet *w,
 	available = wallet_get_ordered_confirmed_utxos(ctx, w,
 						output_state_available);
 
+	*sat = AMOUNT_SAT(0);
 	/* Mark them all as reserved and sum up total */
 	for (i = 0; i < tal_count(available) && i < max_utxos; i++) {
 		if (!amount_sat_add(sat, *sat, available[i]->amount))
