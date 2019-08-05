@@ -849,10 +849,11 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 				 type_to_string(tmpctx, struct amount_sat, &fc->accepter_funding),
 				 type_to_string(tmpctx, struct amount_sat,
 						&payload->our_max_funding));
+		struct amount_sat fee_estimate UNUSED;
 		fc->wtx->utxos = wallet_select_coins(fc, w,
 						     fc->accepter_funding,
 						     0, 0, UINT32_MAX,
-						     NO_PAY, NULL,
+						     NO_PAY, &fee_estimate,
 						     &fc->local_change);
 
 		/* Verify that we're still under the contrib count that was offered */
