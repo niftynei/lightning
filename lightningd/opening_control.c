@@ -881,6 +881,7 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 					           &fc->accepter_funding));
 
 		fc->accepter_funding = AMOUNT_SAT(0);
+		fc->local_change = AMOUNT_SAT(0);
 	}
 	utxos_to_inputs(fc, w, fc->wtx->utxos, &fc->our_inputs);
 
