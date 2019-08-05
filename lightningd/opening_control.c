@@ -188,6 +188,42 @@ static struct openchannel_hook_payload
 	return payload;
 }
 
+static struct openchannel2_hook_payload *
+new_openchannel2_hook_payload(const tal_t *ctx,
+			      struct subd *openingd,
+			      struct amount_sat funding_satoshis,
+			      struct amount_msat push_msat,
+			      struct amount_sat dust_limit_satoshis,
+			      struct amount_msat max_htlc_value_in_flight_msat,
+			      struct amount_msat htlc_minimum_msat,
+			      u32 feerate_per_kw,
+			      u32 feerate_per_kw_funding,
+			      u16 to_self_delay,
+			      u16 max_accepted_htlcs,
+			      u8 channel_flags,
+			      u8 *shutdown_scriptpubkey,
+			      u16 max_allowed_inputs)
+{
+	struct openchannel2_hook_payload *payload;
+	payload = tal(ctx, struct openchannel2_hook_payload);
+
+	payload->ocp = new_openchannel_hook_payload(payload, openingd,
+						    funding_satoshis, push_msat,
+						    dust_limit_satoshis,
+						    max_htlc_value_in_flight_msat,
+						    AMOUNT_SAT(0),
+						    htlc_minimum_msat,
+						    feerate_per_kw,
+						    to_self_delay,
+						    max_accepted_htlcs,
+						    channel_flags,
+						    shutdown_scriptpubkey);
+	payload->feerate_per_kw_funding = feerate_per_kw_funding;
+	payload->max_allowed_inputs = max_allowed_inputs;
+
+	return payload;
+}
+
 /* There's nothing permanent in an unconfirmed transaction */
 static void opening_channel_set_billboard(struct uncommitted_channel *uc,
 					  bool perm UNUSED,
@@ -918,13 +954,12 @@ static void accepter_select_coins(struct subd *openingd,
 	struct amount_sat dust_limit_satoshis;
 	struct amount_msat max_htlc_value_in_flight_msat, htlc_minimum_msat;
 	struct funding_channel *fc;
-	u32 feerate_per_kw;
+	u32 feerate_per_kw, feerate_per_kw_funding;
 	u16 to_self_delay, max_accepted_htlcs, contrib_count;
 	u8 *shutdown_scriptpubkey;
 
 	struct wallet *w = openingd->ld->wallet;
-	struct openchannel2_hook_payload *payload = tal(openingd->ld,
-						       struct openchannel2_hook_payload);
+	struct openchannel2_hook_payload *payload;
 
 	if (peer_active_channel(uc->peer)) {
 		subd_send_msg(openingd,
@@ -947,7 +982,7 @@ static void accepter_select_coins(struct subd *openingd,
 						&max_htlc_value_in_flight_msat,
 						&htlc_minimum_msat,
 						&feerate_per_kw,
-						&payload->feerate_per_kw_funding,
+						&feerate_per_kw_funding,
 						&to_self_delay,
 						&max_accepted_htlcs,
 						&shutdown_scriptpubkey)) {
@@ -956,19 +991,6 @@ static void accepter_select_coins(struct subd *openingd,
 		uncommitted_channel_disconnect(uc, "bad OPENING_DUAL_OPEN_STARTED");
 		goto failed;
 	}
-
-	payload->ocp = new_openchannel_hook_payload(payload, openingd,
-						    fc->opener_funding,
-						    fc->push,
-						    dust_limit_satoshis,
-						    max_htlc_value_in_flight_msat,
-						    AMOUNT_SAT(0), /* channel reserve not known yet */
-						    htlc_minimum_msat,
-						    feerate_per_kw,
-						    to_self_delay,
-						    max_accepted_htlcs,
-						    fc->channel_flags,
-						    shutdown_scriptpubkey);
 
 	/**
 	 * FIXME: Fill in with bolt info when merged
@@ -980,7 +1002,20 @@ static void accepter_select_coins(struct subd *openingd,
 	 *  - MAY send zero inputs and/or outputs.
 	 */
 	/* max allowed is remote's contrib_count minus one change output */
-	payload->max_allowed_inputs = contrib_count <= 2 ? 1 : contrib_count - 1;
+	payload = new_openchannel2_hook_payload(fc, openingd,
+					        fc->opener_funding,
+					        fc->push,
+					        dust_limit_satoshis,
+					        max_htlc_value_in_flight_msat,
+					        htlc_minimum_msat,
+					        feerate_per_kw,
+					        feerate_per_kw_funding,
+					        to_self_delay,
+					        max_accepted_htlcs,
+					        fc->channel_flags,
+					        shutdown_scriptpubkey,
+					        contrib_count <= 2 ? 1 : contrib_count - 1);
+
 
 	/* Calculate the max we could contribute to this channel */
 	wallet_compute_max(tmpctx, w, payload->max_allowed_inputs,
