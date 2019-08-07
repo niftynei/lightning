@@ -813,7 +813,7 @@ static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 	*inputs = tal_arr(ctx, struct input_info *, 0);
 
 	for (i = 0; i < tal_count(utxos); i++) {
-		struct input_info *input = tal(inputs, struct input_info);
+		struct input_info *input = tal(*inputs, struct input_info);
 
 		input->input_satoshis = utxos[i]->amount;
 		input->prevtx_txid = utxos[i]->txid;
