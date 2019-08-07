@@ -71,27 +71,26 @@ u8 **witness_stack_to_arr(struct witness_stack *stack)
 	return witnesses;
 }
 
-struct output_info **build_outputs(const tal_t *ctx,
-				  const struct ext_key *bip32_base,
-				  u32 change_keyindex,
-				  struct amount_sat change)
+void build_outputs(const tal_t *ctx,
+		   const struct ext_key *bip32_base,
+		   u32 change_keyindex,
+		   struct amount_sat change,
+		   struct output_info ***outputs)
 {
 	struct output_info *output;
-	struct output_info **outputs;
-
-	outputs = tal_arr(ctx, struct output_info *, 0);
-
 	struct pubkey *changekey;
 
+	*outputs = tal_arr(ctx, struct output_info *, 0);
 	changekey = tal(tmpctx, struct pubkey);
-	if (!bip32_pubkey(bip32_base, changekey, change_keyindex))
-		return NULL;
+	if (!bip32_pubkey(bip32_base, changekey, change_keyindex)) {
+		*outputs = tal_free(*outputs);
+		return;
+	}
 
+	output = tal(*outputs, struct output_info);
 	output->output_satoshis = change;
-	output->script = scriptpubkey_p2wpkh(&output, changekey);
-	tal_arr_expand(&outputs, output);
-
-	return outputs;
+	output->script = scriptpubkey_p2wpkh(output, changekey);
+	tal_arr_expand(outputs, output);
 }
 
 /* We leave out the change addresses if there's no change left after fees */

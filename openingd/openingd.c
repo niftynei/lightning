@@ -1057,8 +1057,8 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 	char* err_reason;
 	u8 *msg;
 
-	state->df->our_outputs = build_outputs(tmpctx, bip32_base,
-					       change_keyindex, change);
+	build_outputs(tmpctx, bip32_base, change_keyindex, change,
+		      &state->df->our_outputs);
 
 	if (!state->df->our_outputs)
 		status_failed(STATUS_FAIL_MASTER_IO,

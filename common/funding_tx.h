@@ -57,10 +57,11 @@ u8 **witness_stack_to_arr(struct witness_stack *stack);
  * build an output_info set. Useful helper for establishing channels
  * under the v2 channel estamblishment protocol.
  */
-struct output_info **build_outputs(const tal_t *ctx,
-				  const struct ext_key *bip32_base,
-				  u32 change_keyindex,
-				  struct amount_sat change);
+void build_outputs(const tal_t *ctx,
+		   const struct ext_key *bip32_base,
+		   u32 change_keyindex,
+		   struct amount_sat change,
+		   struct output_info ***outputs);
 /**
  * funding_tx: create a P2WSH funding transaction for a channel.
  * @ctx: context to tal from.

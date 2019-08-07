@@ -924,10 +924,9 @@ static void openchannel2_hook_cb(struct openchannel2_hook_payload *payload,
 	/* Do we have change? */
 	if (amount_sat_greater(fc->local_change, AMOUNT_SAT(0))) {
 		change_keyindex = wallet_get_newindex(openingd->ld);
-		fc->our_outputs = build_outputs(fc,
-						w->bip32_base,
-						change_keyindex,
-						fc->local_change);
+		build_outputs(fc, w->bip32_base, change_keyindex,
+			      fc->local_change, &fc->our_outputs);
+
 		if (!fc->our_outputs)
 			fatal("Error deriving change key %u", change_keyindex);
 	} else
