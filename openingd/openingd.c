@@ -1052,7 +1052,6 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 	const struct witness_stack **remote_witnesses;
 	struct witness_stack **our_witnesses;
 	const u8 *wscript;
-	void **input_map;
 
 	char* err_reason;
 	u8 *msg;
@@ -1112,6 +1111,13 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 
 	local_funding = state->funding;
 
+	size_t input_count = tal_count(state->df->their_inputs) +
+		tal_count(state->df->our_inputs);
+
+	const void *map[input_count];
+	for (size_t i = 0; i < input_count; i++)
+		map[i] = int2ptr(i);
+
 	/* Build the funding transaction */
 	funding_tx = dual_funding_funding_tx(state, state->chainparams,
 					     &state->funding_txout,
@@ -1124,7 +1130,7 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 					     &state->our_funding_pubkey,
 					     &state->their_funding_pubkey,
 					     &state->funding,
-					     &input_map);
+					     (const void **)&map);
 
 	if (!funding_tx)
 		peer_failed(state->pps,
@@ -1301,13 +1307,11 @@ static u8 *funder_finalize_channel_setup2(struct state *state,
 			    tal_count(remote_witnesses),
 			    tal_count(state->df->their_inputs));
 
-	size_t input_count = tal_count(our_inputs) +
-		tal_count(state->df->their_inputs);
-	u32 map[input_count];
+	u32 i_map[input_count];
 	for (size_t i = 0; i < input_count; i++) {
-		map[i] = ptr2int(input_map[i]);
+		i_map[i] = ptr2int(map[i]);
 	}
-	return towire_opening_df_opener_finished(tmpctx, remote_witnesses, map);
+	return towire_opening_df_opener_finished(tmpctx, remote_witnesses, i_map);
 }
 
 static u8 *funder_channel_complete(struct state *state)

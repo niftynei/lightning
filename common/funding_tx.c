@@ -230,7 +230,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           const struct pubkey *local_fundingkey,
 				           const struct pubkey *remote_fundingkey,
 					   struct amount_sat *total_funding,
-					   void ***input_map)
+					   const void **input_map)
 {
 	size_t weight;
 	struct amount_sat funding_tx_fee, opener_total_sat,
@@ -325,6 +325,9 @@ build_tx:
 	add_inputs(tx, opener_inputs);
 	add_inputs(tx, accepter_inputs);
 
+	/* Sort inputs */
+	permute_inputs(tx, input_map);
+
 	/* Sort outputs */
 	permute_outputs(tx, NULL, o_map);
 
@@ -335,16 +338,6 @@ build_tx:
 			break;
 		}
 	}
-
-	/* Sort inputs */
-	if (input_map) {
-		*input_map = tal_arr(tx, void *, input_count);
-		for (i = 0; i < input_count; i++)
-			*input_map[i] = int2ptr(i);
-		permute_inputs(tx, cast_const2(const void **, *input_map));
-	} else
-		permute_inputs(tx, NULL);
-
 
 	assert(bitcoin_tx_check(tx));
 	return tx;

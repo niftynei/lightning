@@ -92,6 +92,6 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 				           const struct pubkey *local_fundingkey,
 				           const struct pubkey *remote_fundingkey,
 					   struct amount_sat *total_funding,
-					   void ***input_map);
+					   const void **input_map);
 #endif /* EXPERIMENTAL_FEATURES */
 #endif /* LIGHTNING_COMMON_FUNDING_TX_H */

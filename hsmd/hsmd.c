@@ -1487,7 +1487,6 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	struct utxo **our_utxos;
 	struct amount_sat total_funding;
 	enum side opener;
-	void **input_map;
 
 	if (!fromwire_hsm_dual_funding_sigs(tmpctx,
 					    msg_in,
@@ -1506,6 +1505,13 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 
 		return bad_req(conn, c, msg_in);
 
+	size_t input_count = tal_count(opener_inputs) +
+		tal_count(accepter_inputs);
+
+	const void *map[input_count];
+	for (i = 0; i < input_count; i++)
+		map[i] = int2ptr(i);
+
 	tx = dual_funding_funding_tx(tmpctx,
 				     c->chainparams,
 				     NULL,
@@ -1517,7 +1523,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 				     &local_pubkey,
 				     &remote_pubkey,
 				     &total_funding,
-				     &input_map);
+				     (const void **)&map);
 
 	if (!tx)
 		return bad_req_fmt(conn, c, msg_in, "Unable to create valid funding tx.");
@@ -1533,7 +1539,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 		u8 **utxo_witnesses;
 		size_t input_index;
 
-		input_index = ptr2int(input_map[i + offset]);
+		input_index = ptr2int(map[i + offset]);
 		sign_input(tx, in, &inkey, &sig, input_index);
 
 		utxo_witnesses = bitcoin_witness_p2wpkh(tmpctx, &sig, &inkey);
@@ -1557,7 +1563,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 	offset = opener == REMOTE ? 0 : tal_count(accepter_inputs) - 1;
 	for (i = 0; i < tal_count(their_witnesses); i++)
 		bitcoin_tx_input_set_witness(tx,
-				             ptr2int(input_map[i + offset]),
+				             ptr2int(map[i + offset]),
 					     witness_stack_to_arr(their_witnesses[i]));
 
 	return req_reply(conn, c,
