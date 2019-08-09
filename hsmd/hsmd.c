@@ -1530,11 +1530,11 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 
 	/* For the input_map, the opener_inputs are added before the accepter's */
 	offset = opener == LOCAL ? 0 : tal_count(accepter_inputs) - 1;
-	witnesses = tal_arr(tmpctx, struct witness_stack *, tal_count(our_utxos));
+	witnesses = tal_arr(tmpctx, struct witness_stack *, 0);
 	for (i = 0; i < tal_count(our_utxos); i++) {
 		struct pubkey inkey;
 		const struct utxo *in = our_utxos[i];
-		struct witness_stack *stack = witnesses[i];
+		struct witness_stack *stack = tal(witnesses, struct witness_stack);
 		struct bitcoin_signature sig;
 		u8 **utxo_witnesses;
 		size_t input_index;
@@ -1549,13 +1549,17 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 					     input_index,
 					     utxo_witnesses);
 
-		*(stack->witness_element) = tal_arr(stack, struct witness_element, 2);
-		stack->witness_element[0]->witness =
-			tal_dup_arr(stack, u8, utxo_witnesses[0],
-				    sizeof(utxo_witnesses[0]), 0);
-		stack->witness_element[1]->witness =
-			tal_dup_arr(stack, u8, utxo_witnesses[1],
-				    sizeof(utxo_witnesses[1]), 1);
+		stack->witness_element = tal_arr(stack, struct witness_element *, 0);
+		for (size_t j = 0; j < 2; j++) {
+			struct witness_element *element = tal(stack, struct witness_element);
+			element->witness = tal_dup_arr(stack, u8,
+						       utxo_witnesses[i],
+						       tal_bytelen(utxo_witnesses[i]),
+						       0);
+			tal_arr_expand(&stack->witness_element, element);
+		}
+
+		tal_arr_expand(&witnesses, stack);
 	}
 
 	/* Go ahead and fill in all of the witness data for this,
