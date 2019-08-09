@@ -832,6 +832,8 @@ static void utxos_to_inputs(const tal_t *ctx, struct wallet *w,
 		 */
 		if (utxos[i]->is_p2sh)
 			input->script = derive_redeemscript(w, utxos[i]->keyindex);
+		else
+			input->script = tal_arr(ctx, u8, 0);
 
 		tal_arr_expand(inputs, input);
 	}
