@@ -43,7 +43,7 @@ then
 	return
 fi
 
-mkdir -p /tmp/l1-regtest /tmp/l2-regtest
+mkdir -p /tmp/l1-regtest /tmp/l2-regtest /tmp/bt-regtest
 
 # Node one config
 cat << 'EOF' > /tmp/l1-regtest/config
@@ -52,6 +52,7 @@ daemon
 log-level=debug
 log-file=/tmp/l1-regtest/log
 addr=localhost:6060
+bitcoin-datadir=/tmp/bt-regtest
 EOF
 
 cat << 'EOF' > /tmp/l2-regtest/config
@@ -60,16 +61,17 @@ daemon
 log-level=debug
 log-file=/tmp/l2-regtest/log
 addr=localhost:9090
+bitcoin-datadir=/tmp/bt-regtest
 EOF
 
 alias l1-cli='$PATH_TO_LIGHTNING/cli/lightning-cli --lightning-dir=/tmp/l1-regtest'
 alias l2-cli='$PATH_TO_LIGHTNING/cli/lightning-cli --lightning-dir=/tmp/l2-regtest'
-alias bt-cli='bitcoin-cli -regtest'
+alias bt-cli='bitcoin-cli -regtest -datadir=/tmp/bt-regtest'
 
 start_ln() {
 	# Start bitcoind in the background
-	test -f "$PATH_TO_BITCOIN/regtest/bitcoind.pid" || \
-		bitcoind -daemon -regtest -txindex
+	test -f "/tmp/bt-regtest/regtest/bitcoind.pid" || \
+		bitcoind -daemon -regtest -txindex -datadir=/tmp/bt-regtest
 
 	# Start the lightning nodes
 	test -f /tmp/l1-regtest/lightningd-regtest.pid || \
@@ -86,17 +88,23 @@ stop_ln() {
 	test ! -f /tmp/l2-regtest/lightningd-regtest.pid || \
 		(kill "$(cat /tmp/l2-regtest/lightningd-regtest.pid)"; \
 		rm /tmp/l2-regtest/lightningd-regtest.pid)
-	test ! -f "$PATH_TO_BITCOIN/regtest/bitcoind.pid" || \
-		(kill "$(cat "$PATH_TO_BITCOIN/regtest/bitcoind.pid")"; \
-		rm "$PATH_TO_BITCOIN/regtest/bitcoind.pid")
+	test ! -f "/tmp/bt-regtest/regtest/bitcoind.pid" || \
+		(kill "$(cat "/tmp/bt-regtest/regtest/bitcoind.pid")"; \
+		rm "/tmp/bt-regtest/regtest/bitcoind.pid")
+}
+
+reset_ln() {
+	rm -rf /tmp/l2-regtest /tmp/l1-regtest /tmp/bt-regtest
 }
 
 cleanup_ln() {
 	stop_ln
+	reset_ln
 	unalias l1-cli
 	unalias l2-cli
 	unalias bt-cli
 	unset -f start_ln
 	unset -f stop_ln
 	unset -f cleanup_ln
+	unset -f reset_ln
 }
