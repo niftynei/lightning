@@ -1529,7 +1529,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 		return bad_req_fmt(conn, c, msg_in, "Unable to create valid funding tx.");
 
 	/* For the input_map, the opener_inputs are added before the accepter's */
-	offset = opener == LOCAL ? 0 : tal_count(accepter_inputs) - 1;
+	offset = opener == LOCAL ? 0 : tal_count(opener_inputs);
 	witnesses = tal_arr(tmpctx, struct witness_stack *, 0);
 	for (i = 0; i < tal_count(our_utxos); i++) {
 		struct pubkey inkey;
@@ -1564,7 +1564,7 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 
 	/* Go ahead and fill in all of the witness data for this,
 	 * while we've still got the input index map around */
-	offset = opener == REMOTE ? 0 : tal_count(accepter_inputs) - 1;
+	offset = opener == REMOTE ? 0 : tal_count(opener_inputs);
 	for (i = 0; i < tal_count(their_witnesses); i++)
 		bitcoin_tx_input_set_witness(tx,
 				             ptr2int(map[i + offset]),
