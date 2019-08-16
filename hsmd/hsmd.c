@@ -1553,8 +1553,8 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 		for (size_t j = 0; j < 2; j++) {
 			struct witness_element *element = tal(stack, struct witness_element);
 			element->witness = tal_dup_arr(stack, u8,
-						       utxo_witnesses[i],
-						       tal_bytelen(utxo_witnesses[i]),
+						       utxo_witnesses[j],
+						       tal_bytelen(utxo_witnesses[j]),
 						       0);
 			tal_arr_expand(&stack->witness_element, element);
 		}
