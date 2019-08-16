@@ -1542,13 +1542,11 @@ static struct io_plan *handle_sign_dual_funding_tx(struct io_conn *conn,
 		input_index = ptr2int(map[i + offset]);
 		sign_input(tx, in, &inkey, &sig, input_index);
 
-		utxo_witnesses = bitcoin_witness_p2wpkh(tmpctx, &sig, &inkey);
-
 		/* Set witness on transaction */
-		bitcoin_tx_input_set_witness(tx,
-					     input_index,
-					     utxo_witnesses);
+		bitcoin_tx_input_set_witness(tx, input_index,
+				bitcoin_witness_p2wpkh(tmpctx, &sig, &inkey));
 
+		utxo_witnesses = bitcoin_witness_p2wpkh(tmpctx, &sig, &inkey);
 		stack->witness_element = tal_arr(stack, struct witness_element *, 0);
 		for (size_t j = 0; j < 2; j++) {
 			struct witness_element *element = tal(stack, struct witness_element);
