@@ -205,6 +205,7 @@ static void add_outputs(struct bitcoin_tx *tx, struct output_info **outputs,
 	for (i = 0; i < tal_count(outputs); i++) {
 		/* Is this the change output?? */
 		if (change && amount_sat_eq(outputs[i]->output_satoshis, AMOUNT_SAT(0))) {
+			/* If there's no change amount, we leave it out */
 			if (amount_sat_eq(*change, AMOUNT_SAT(0)))
 				continue;
 			value = *change;
@@ -253,15 +254,26 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 	if (!amount_sat_sub(&opener_change, opener_total_sat, *opener_funding))
 		return NULL;
 
+	// Check that the remaining amount at least covers the other
+	// indicated output values. We have to cover these other outputs,
+	// as they might be other funding transaction outputs. The
+	// only 'flexible' / change output that's removable etc is indicated
+	// by a zero value.
+	output_val = calculate_output_value(opener_outputs);
+	if (!amount_sat_sub(&opener_change, opener_change, output_val))
+		return NULL;
+
 	change_output = find_change_output(opener_outputs);
-	if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
-		if (!change_output && amount_sat_greater(opener_change, AMOUNT_SAT(0))) {
+	if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee) &&
+			amount_sat_greater(opener_change, chainparams->dust_limit)) {
+		if (!change_output) {
 			/* If there's no change output, we put the remainder into
 			 * the funding output. TODO: add to spec */
 			assert(amount_sat_add(opener_funding,
 					      *opener_funding, opener_change));
 			opener_change = AMOUNT_SAT(0);
 		}
+
 		goto build_tx;
 	}
 
@@ -271,8 +283,7 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 		weight -= (8 + scriptlen + varint_size(scriptlen)) * 4;
 		funding_tx_fee = amount_tx_fee(feerate_kw_funding, weight);
 
-		/* Recalculate the opener_change */
-		assert(amount_sat_sub(&opener_change, opener_total_sat, *opener_funding));
+		/* Any left over gets added to the funding output */
 		if (amount_sat_sub(&opener_change, opener_change, funding_tx_fee)) {
 			assert(amount_sat_add(opener_funding, *opener_funding, opener_change));
 			opener_change = AMOUNT_SAT(0);
@@ -280,7 +291,6 @@ struct bitcoin_tx *dual_funding_funding_tx(const tal_t *ctx,
 		}
 	}
 
-	output_val = calculate_output_value(opener_outputs);
 	if (!amount_sat_sub(opener_funding, opener_total_sat, funding_tx_fee) ||
 		!amount_sat_sub(opener_funding, *opener_funding, output_val))
 		return NULL;
@@ -309,6 +319,12 @@ build_tx:
 
 	*total_funding = *opener_funding;
 	assert(amount_sat_add(total_funding, *total_funding, accepter_funding));
+
+	/* Last check, make sure our funding output is greater than
+	 * the dust limit */
+	if (!amount_sat_greater(*total_funding, chainparams->dust_limit))
+		return NULL;
+
 
 	const void *o_map[output_count];
 	for (i = 0; i < output_count; i++)
