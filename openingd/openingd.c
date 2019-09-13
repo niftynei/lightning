@@ -112,6 +112,11 @@ struct state {
 	struct channel *channel;
 
 	bool option_static_remotekey;
+
+	/* Things for v2 */
+	bool use_v2;
+	struct amount_sat accepter_funding;
+	u32 feerate_per_kw_funding;
 };
 
 static u8 *dev_upfront_shutdown_script(const tal_t *ctx)
@@ -495,6 +500,9 @@ static bool setup_channel_funder(struct state *state)
 					     &state->funding));
 		return false;
 	}
+
+	if (!state->use_v2)
+		state->accepter_funding = AMOUNT_SAT(0);
 
 	return true;
 }
@@ -1372,7 +1380,8 @@ static u8 *handle_master_in(struct state *state)
 						   &state->push_msat,
 						   &state->upfront_shutdown_script[LOCAL],
 						   &state->feerate_per_kw,
-						   &channel_flags))
+						   &channel_flags,
+						   &state->use_v2))
 			master_badmsg(WIRE_OPENING_FUNDER_START, msg);
 		msg = funder_channel_start(state, channel_flags);
 
