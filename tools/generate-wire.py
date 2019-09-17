@@ -222,6 +222,7 @@ class Type(FieldSet):
         'bitcoin_tx_output',
         'exclude_entry',
         'fee_states',
+        'bitcoin_tx_input',
     ]
 
     # Some BOLT types are re-typed based on their field name
