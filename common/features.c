@@ -13,6 +13,9 @@ static const u32 our_features[] = {
 	OPTIONAL_FEATURE(OPT_BASIC_MPP),
 	OPTIONAL_FEATURE(OPT_GOSSIP_QUERIES_EX),
 	OPTIONAL_FEATURE(OPT_STATIC_REMOTEKEY),
+#if EXPERIMENTAL_FEATURES
+	OPTIONAL_FEATURE(OPT_FUNDCHANNEL_V2),
+#endif
 };
 
 enum feature_copy_style {
@@ -70,6 +73,9 @@ static const struct feature_style feature_styles[] = {
 	  .copy_style = { [INIT_FEATURE] = FEATURE_REPRESENT,
 			  [NODE_ANNOUNCE_FEATURE] = FEATURE_REPRESENT,
 			  [BOLT11_FEATURE] = FEATURE_REPRESENT } },
+	{ OPT_FUNDCHANNEL_V2,
+	  .copy_style = { [INIT_FEATURE] = FEATURE_REPRESENT_AS_OPTIONAL,
+			  [NODE_ANNOUNCE_FEATURE] = FEATURE_REPRESENT} },
 };
 
 static enum feature_copy_style feature_copy_style(u32 f, enum feature_place p)
@@ -237,6 +243,9 @@ static const char *feature_name(const tal_t *ctx, size_t f)
 		"option_static_remotekey",
 		"option_payment_secret",
 		"option_basic_mpp",
+#if EXPERIMENTAL_FEATURES
+		"option_dual_fund",
+#endif
 	};
 
 	assert(f / 2 < ARRAY_SIZE(fnames));

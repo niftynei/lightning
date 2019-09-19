@@ -5,7 +5,7 @@ from fixtures import LightningNode, TEST_NETWORK
 from flaky import flaky  # noqa: F401
 from lightning import RpcError
 from threading import Event
-from pyln.testing.utils import DEVELOPER, TIMEOUT, VALGRIND, sync_blockheight, only_one, wait_for, TailableProc, env
+from pyln.testing.utils import DEVELOPER, EXPERIMENTAL_FEATURES, TIMEOUT, VALGRIND, sync_blockheight, only_one, wait_for, TailableProc, env
 from ephemeral_port_reserve import reserve
 
 import json
@@ -1715,15 +1715,27 @@ def test_dev_demux(node_factory):
 def test_list_features_only(node_factory):
     features = subprocess.check_output(['lightningd/lightningd',
                                         '--list-features-only']).decode('utf-8').splitlines()
-    expected = ['option_data_loss_protect/odd',
-                'option_upfront_shutdown_script/odd',
-                'option_gossip_queries/odd',
-                'option_var_onion_optin/odd',
-                'option_payment_secret/odd',
-                'option_basic_mpp/odd',
-                'option_gossip_queries_ex/odd',
-                'option_static_remotekey/odd',
-                ]
+    if EXPERIMENTAL_FEATURES:
+        expected = ['option_data_loss_protect/odd',
+                    'option_upfront_shutdown_script/odd',
+                    'option_gossip_queries/odd',
+                    'option_var_onion_optin/odd',
+                    'option_payment_secret/odd',
+                    'option_basic_mpp/odd',
+                    'option_gossip_queries_ex/odd',
+                    'option_static_remotekey/odd',
+                    'option_dual_fund/odd',
+                    ]
+    else:
+        expected = ['option_data_loss_protect/odd',
+                    'option_upfront_shutdown_script/odd',
+                    'option_gossip_queries/odd',
+                    'option_var_onion_optin/odd',
+                    'option_payment_secret/odd',
+                    'option_basic_mpp/odd',
+                    'option_gossip_queries_ex/odd',
+                    'option_static_remotekey/odd',
+                    ]
     assert features == expected
 
 
