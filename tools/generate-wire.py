@@ -223,6 +223,9 @@ class Type(FieldSet):
         'exclude_entry',
         'fee_states',
         'bitcoin_tx_input',
+        'output_info',
+        'input_info',
+        'witness_stack',
     ]
 
     # Some BOLT types are re-typed based on their field name
