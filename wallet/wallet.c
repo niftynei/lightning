@@ -102,7 +102,8 @@ bool wallet_add_utxo(struct wallet *w, struct utxo *utxo,
 		       ", confirmation_height"
 		       ", spend_height"
 		       ", scriptpubkey"
-		       ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"));
+		       ", spend_priority"
+		       ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"));
 	db_bind_txid(stmt, 0, &utxo->txid);
 	db_bind_int(stmt, 1, utxo->outnum);
 	db_bind_amount_sat(stmt, 2, &utxo->amount);
@@ -139,6 +140,8 @@ bool wallet_add_utxo(struct wallet *w, struct utxo *utxo,
 				  tal_bytelen(utxo->scriptPubkey));
 	else
 		db_bind_null(stmt, 11);
+
+	db_bind_int(stmt, 12, utxo->spend_priority);
 
 	db_exec_prepared_v2(take(stmt));
 	return true;
@@ -205,6 +208,8 @@ static struct utxo *wallet_stmt2output(const tal_t *ctx, struct db_stmt *stmt)
 		*reserved_for = db_column_int(stmt, 13);
 		utxo->reserved_for = reserved_for;
 	}
+
+	utxo->spend_priority = db_column_int(stmt, 14);
 
 	return utxo;
 }
@@ -309,7 +314,9 @@ bool wallet_output_reservation_update(struct wallet *w,
 
 	stmt = db_prepare_v2(w->db,
 			     SQL("UPDATE outputs"
-				 " SET reserved_at = ?, reserved_for = ?"
+				 " SET reserved_at = ?"
+				 ", reserved_for = ?"
+				 ", spend_priority = ?"
 				 " WHERE prev_out_tx = ? AND prev_out_index = ?"));
 	if (current_height == 0 || reserve_for == 0) {
 		db_bind_null(stmt, 0);
@@ -318,8 +325,15 @@ bool wallet_output_reservation_update(struct wallet *w,
 		db_bind_int(stmt, 0, current_height);
 		db_bind_int(stmt, 1, reserve_for);
 	}
-	db_bind_sha256d(stmt, 2, &utxo->txid.shad);
-	db_bind_int(stmt, 3, utxo->outnum);
+
+	/* Any output with a reservation expiration gets first
+	 * priority for spending. Note that we could also increment
+	 * the spend priority by one every time it passes through
+	 * here, such that expired utxos would ratchet to the front
+	 * for every time they get shared */
+	db_bind_int(stmt, 2, spend_first);
+	db_bind_sha256d(stmt, 3, &utxo->txid.shad);
+	db_bind_int(stmt, 4, utxo->outnum);
 	db_exec_prepared_v2(stmt);
 	changes = db_count_changes(stmt);
 	tal_free(stmt);
@@ -348,6 +362,7 @@ static struct utxo *wallet_get_utxo(const tal_t *ctx, struct wallet *w,
 					", scriptpubkey"
 					", reserved_at"
 					", reserved_for"
+					", spend_priority"
 					" FROM outputs"
 					" WHERE prev_out_tx = ? AND prev_out_index = ?"));
 
@@ -389,7 +404,9 @@ struct utxo **wallet_get_utxos(const tal_t *ctx, struct wallet *w, const enum ou
 						", scriptpubkey"
 						", reserved_at"
 						", reserved_for"
-						" FROM outputs"));
+						", spend_priority"
+						" FROM outputs "
+						" ORDER BY spend_priority DESC"));
 	} else {
 		stmt = db_prepare_v2(w->db, SQL("SELECT"
 						"  prev_out_tx"
@@ -406,8 +423,10 @@ struct utxo **wallet_get_utxos(const tal_t *ctx, struct wallet *w, const enum ou
 						", scriptpubkey"
 						", reserved_at"
 						", reserved_for"
+						", spend_priority"
 						" FROM outputs"
-						" WHERE status= ?"));
+						" WHERE status= ?"
+						" ORDER BY spend_priority DESC"));
 		db_bind_int(stmt, 0, output_status_in_db(state));
 	}
 	db_query_prepared(stmt);
@@ -444,6 +463,7 @@ struct utxo **wallet_get_unconfirmed_closeinfo_utxos(const tal_t *ctx,
 					", scriptpubkey"
 					", reserved_at"
 					", reserved_for"
+					", spend_priority"
 					" FROM outputs"
 					" WHERE channel_id IS NOT NULL AND "
 					"confirmation_height IS NULL"));
@@ -481,6 +501,7 @@ static struct utxo **wallet_get_expired_reserved_utxos(const tal_t *ctx,
 					", scriptpubkey"
 					", reserved_at"
 					", reserved_for"
+					", spend_priority"
 					" FROM outputs"
 					" WHERE status = ?"
 					" AND reserved_at IS NOT NULL"
@@ -509,7 +530,6 @@ static struct utxo **wallet_get_expired_reserved_utxos(const tal_t *ctx,
 /* Reserved utxos are ok, if they're expired. In fact, we really
  * want to use those first, so we put them at the head of the
  * spendable list */
-// FIXME: we lose this info after an expired utxo is re-reserved
 static struct utxo **wallet_get_spendable_utxos(const tal_t *ctx,
 						struct wallet *w)
 {
@@ -803,6 +823,7 @@ static struct utxo **sorted_confirmed_utxos(const tal_t *ctx, struct wallet *w,
 						", scriptpubkey "
 						", reserved_at"
 						", reserved_for"
+						", spend_priority"
 						" FROM outputs"
 						" WHERE confirmation_height IS NOT NULL"
 						" ORDER BY value DESC"));
@@ -822,6 +843,7 @@ static struct utxo **sorted_confirmed_utxos(const tal_t *ctx, struct wallet *w,
 						", scriptpubkey "
 						", reserved_at"
 						", reserved_for"
+						", spend_priority"
 						" FROM outputs"
 						" WHERE status = ?"
 						" AND confirmation_height IS NOT NULL"
@@ -1963,6 +1985,7 @@ int wallet_extract_owned_outputs(struct wallet *w, const struct bitcoin_tx *tx,
 		bitcoin_txid(tx, &utxo->txid);
 		utxo->outnum = output;
 		utxo->close_info = NULL;
+		utxo->spend_priority = spend_normal;
 
 		utxo->blockheight = blockheight ? blockheight : NULL;
 		utxo->spendheight = NULL;
