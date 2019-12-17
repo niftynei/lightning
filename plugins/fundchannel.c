@@ -299,6 +299,7 @@ static struct command_result *fundchannel_start_done(struct command *cmd,
 						     struct funding_req *fr)
 {
 	struct json_out *ret;
+	u32 version;
 
 	/* Save the outscript so we can fund the outnum later */
 	fr->out_script = json_tok_bin_from_hex(fr, buf,
@@ -309,8 +310,8 @@ static struct command_result *fundchannel_start_done(struct command *cmd,
 				       json_get_member(buf, result, "funding_address"));
 
 	/* Is this a v2 request? */
-	fr->is_v2 = json_tok_streq(buf,
-				   json_get_member(buf, result, "open_channel_version"), "2");
+	json_to_number(buf, json_get_member(buf, result, "open_channel_version"), &version);
+	fr->is_v2 = version == 2;
 
 	/* Now that we're ready to go, cancel the reserved tx */
 	ret = json_out_new(NULL);
