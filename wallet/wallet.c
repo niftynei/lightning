@@ -330,8 +330,10 @@ static struct utxo *wallet_stmt2output(const tal_t *ctx, struct db_stmt *stmt)
 
 static bool reservation_expired(struct wallet *w, const struct utxo *utxo)
 {
-	return utxo->reserved_at &&
-		*utxo->reserved_at + *utxo->reserved_for >= w->ld->topology->tip->height;
+	if (!utxo->reserved_at || !utxo->reserved_for)
+		return true;
+
+	return *utxo->reserved_at + *utxo->reserved_for <= w->ld->topology->tip->height;
 }
 
 static bool wallet_clear_reservation(struct wallet *w, struct utxo *utxo)
@@ -4120,22 +4122,37 @@ static void process_utxo_result(struct bitcoind *bitcoind,
 
 	/* If we have more, resolve them too. */
 	tal_arr_remove(&utxos, 0);
-	if (tal_count(utxos) != 0) {
+	while (tal_count(utxos) != 0) {
+		if (!reservation_expired(bitcoind->ld->wallet, utxos[0])) {
+			tal_arr_remove(&utxos, 0);
+			continue;
+		}
+
 		bitcoind_gettxout(bitcoind, &utxos[0]->txid, utxos[0]->outnum,
 				  process_utxo_result, utxos);
-	} else
-		tal_free(utxos);
+		return;
+	}
+
+	tal_free(utxos);
 }
 
 void wallet_clean_utxos(struct wallet *w, struct bitcoind *bitcoind)
 {
 	struct utxo **utxos = wallet_get_utxos(NULL, w, output_state_reserved);
 
-	if (tal_count(utxos) != 0) {
+	/* We skip any utxos that still have a valid reservation */
+	while (tal_count(utxos) > 0) {
+		if (!reservation_expired(w, utxos[0])) {
+			tal_arr_remove(&utxos, 0);
+			continue;
+		}
+
 		bitcoind_gettxout(bitcoind, &utxos[0]->txid, utxos[0]->outnum,
 				  process_utxo_result, notleak(utxos));
-	} else
-		tal_free(utxos);
+		return;
+	}
+
+	tal_free(utxos);
 }
 
 struct wallet_transaction *wallet_transactions_get(struct wallet *w, const tal_t *ctx)
