@@ -677,7 +677,7 @@ struct channel *del_txwatch(struct chain_topology *topo UNNEEDED,
 	channel->error = NULL;
 	return channel;
 }
-void forget_channel(struct channel *channel UNNEEDED, char *why UNNEEDED) {
+void forget_channel(struct channel *channel UNNEEDED, bool notify UNNEEDED, char *why UNNEEDED) {
 	tal_arr_expand(&forgotten_channel_ids, channel->dbid);
 }
 bool fromwire_hsm_get_channel_basepoints_reply(const void *p UNNEEDED,

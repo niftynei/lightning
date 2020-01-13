@@ -266,7 +266,7 @@ static void handle_error_channel(struct channel *channel,
 	forget(channel);
 }
 
-void forget_channel(struct channel *channel, char *why)
+void forget_channel(struct channel *channel, bool notify, char *why)
 {
 	struct channel_id cid;
 
@@ -276,10 +276,10 @@ void forget_channel(struct channel *channel, char *why)
 
 	/* If the peer is connected, we let them know. Otherwise
 	 * we just directly remove the channel */
-	if (channel->owner)
+	if (channel->owner && notify) {
 		subd_send_msg(channel->owner,
 			      take(towire_channel_send_error(NULL, why)));
-	else
+	} else
 		forget(channel);
 }
 
