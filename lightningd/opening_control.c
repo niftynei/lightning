@@ -736,9 +736,9 @@ static void opening_opener_sigs_received(struct subd *openingd, const u8 *resp,
 	per_peer_state_set_fds_arr(pps, fds);
 
 	/* openingd should never accept their funding channel in this case. */
-	if (peer_active_channel(uc->peer)) {
+	if (peer_active_or_borked_channel(uc->peer)) {
 		log_broken(uc->log, "openingd accepted peer funding channel");
-		uncommitted_channel_disconnect(uc, "already have active channel");
+		uncommitted_channel_disconnect(uc, "already have active or borked channel");
 		goto cleanup;
 	}
 
@@ -1035,9 +1035,9 @@ static void opening_fundee_finished(struct subd *openingd,
 	per_peer_state_set_fds_arr(pps, fds);
 
 	/* openingd should never accept them funding channel in this case. */
-	if (peer_active_channel(uc->peer)) {
+	if (peer_active_or_borked_channel(uc->peer)) {
 		log_broken(uc->log, "openingd accepted peer funding channel");
-		uncommitted_channel_disconnect(uc, "already have active channel");
+		uncommitted_channel_disconnect(uc, "already have active or borked channel");
 		goto failed;
 	}
 
@@ -1524,10 +1524,10 @@ static void opening_got_offer(struct subd *openingd,
 	struct openchannel_hook_payload *payload;
 
 	/* Tell them they can't open, if we already have open channel. */
-	if (peer_active_channel(uc->peer)) {
+	if (peer_active_or_borked_channel(uc->peer)) {
 		subd_send_msg(openingd,
 			      take(towire_opening_got_offer_reply(NULL,
-					  "Already have active channel", NULL)));
+					  "Already have active or borked channel", NULL)));
 		return;
 	}
 
@@ -1752,7 +1752,7 @@ static struct command_result *json_fund_channel_complete(struct command *cmd,
 		return command_fail(cmd, LIGHTNINGD, "Unknown peer");
 	}
 
-	channel = peer_active_channel(peer);
+	channel = peer_active_or_borked_channel(peer);
 	if (channel)
 		return command_fail(cmd, LIGHTNINGD, "Peer already %s",
 				    channel_state_name(channel));
@@ -1939,7 +1939,7 @@ static struct command_result *json_fund_channel_start(struct command *cmd,
 		return command_fail(cmd, LIGHTNINGD, "Unknown peer");
 	}
 
-	channel = peer_active_channel(peer);
+	channel = peer_active_or_borked_channel(peer);
 	if (channel) {
 		return command_fail(cmd, LIGHTNINGD, "Peer already %s",
 				    channel_state_name(channel));
