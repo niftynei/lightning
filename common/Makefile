@@ -50,6 +50,7 @@ COMMON_SRC_NOGEN :=				\
 	common/permute_tx.c			\
 	common/ping.c				\
 	common/pseudorand.c			\
+	common/podle.c				\
 	common/read_peer_msg.c			\
 	common/socket_close.c			\
 	common/sphinx.c				\
