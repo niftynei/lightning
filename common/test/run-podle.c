@@ -301,6 +301,7 @@ static void test_podle_proofs(void)
 	struct privkey privkey;
 	struct pubkey pk, j_point;
 	struct proof_dle podle, tweaked_podle;
+	struct node_id node_id;
 	size_t i;
 
 	for (i = 0; i < 256; i++) {
@@ -315,12 +316,15 @@ static void test_podle_proofs(void)
 		} while (!secp256k1_ec_pubkey_create(secp256k1_ctx, &pk.pubkey,
 						     privkey.secret.data));
 
+		/* pick a random node id */
+		randombytes_buf(node_id.k, sizeof(node_id.k));
+
 		/* Make a random PoDLE */
-		if (!generate_proof_of_dle(&privkey, &j_point, &podle))
+		if (!generate_proof_of_dle(&privkey, &j_point, &node_id, &podle))
 			abort();
 
 		/* Verify that PoDLE is ok */
-		if (!verify_proof_of_dle(&pk, &j_point, &podle))
+		if (!verify_proof_of_dle(&pk, &j_point, &node_id, &podle))
 			abort();
 
 		/* Tweak each of the PoDLE inputs in turn, verify that fails */
@@ -332,24 +336,24 @@ static void test_podle_proofs(void)
 
 		/* Tweak pk2 */
 		tweaked_podle.pk2.pubkey.data[0]++;
-		assert(!verify_proof_of_dle(&pk, &j_point, &tweaked_podle));
+		assert(!verify_proof_of_dle(&pk, &j_point, &node_id, &tweaked_podle));
 		tweaked_podle.pk2 = podle.pk2;
 
 		/* Tweak commitment */
 		tweaked_podle.commitment.u.u8[0]++;
-		assert(!verify_proof_of_dle(&pk, &j_point, &tweaked_podle));
+		assert(!verify_proof_of_dle(&pk, &j_point, &node_id, &tweaked_podle));
 		memcpy(&tweaked_podle.commitment, &podle.commitment.u.u8,
 		       sizeof(podle.commitment.u.u8));
 
 		/* Tweak sig */
 		tweaked_podle.sig[0]++;
-		assert(!verify_proof_of_dle(&pk, &j_point, &tweaked_podle));
+		assert(!verify_proof_of_dle(&pk, &j_point, &node_id, &tweaked_podle));
 		memcpy(&tweaked_podle.sig, podle.sig, sizeof(podle.sig));
 
 
 		/* Tweak e */
 		tweaked_podle.e.u.u8[0]++;
-		assert(!verify_proof_of_dle(&pk, &j_point, &tweaked_podle));
+		assert(!verify_proof_of_dle(&pk, &j_point, &node_id, &tweaked_podle));
 		memcpy(&tweaked_podle.e, &podle.e.u.u8, sizeof(podle.e.u.u8));
 	}
 }

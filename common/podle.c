@@ -8,9 +8,9 @@
 #include <sodium/randombytes.h>
 #include <stdio.h>
 
-/* e = [ kG || kJ || P || P2 ], all of which
+/* e = [ kG || kJ || P || P2 || node_id ], all of which
  * are of size PUBKEY_CMPR_LEN */
-#define E_MEMBERS 4
+#define E_MEMBERS 5
 #define E_LEN E_MEMBERS * PUBKEY_CMPR_LEN
 
 static bool init_G(struct pubkey *G)
@@ -37,12 +37,13 @@ static void print_arr(unsigned char *arr, size_t len)
 #endif
 
 /* Assumes that pubkeys are packed in correct order (kG, kJ, P, P2) */
-static bool pack_e(unsigned char *e_arr, size_t e_len, struct pubkey **pubkeys, size_t pk_len)
+static bool pack_e(unsigned char *e_arr, size_t e_len, struct pubkey **pubkeys, size_t pk_len,
+		   struct node_id *node_id)
 {
 	unsigned char compressed[PUBKEY_CMPR_LEN];
 	size_t clen = sizeof(compressed), i;
 
-	assert(e_len == pk_len * PUBKEY_CMPR_LEN);
+	assert(e_len == pk_len * PUBKEY_CMPR_LEN + sizeof(node_id->k));
 
 	for (i = 0; i < pk_len; i++) {
 		if (!secp256k1_ec_pubkey_serialize(secp256k1_ctx, compressed,
@@ -55,6 +56,9 @@ static bool pack_e(unsigned char *e_arr, size_t e_len, struct pubkey **pubkeys, 
 #endif
 		memcpy(e_arr + PUBKEY_CMPR_LEN * i, compressed, clen);
 	}
+
+	/* Finally, copy in the node_id at the back */
+	memcpy(e_arr + PUBKEY_CMPR_LEN * pk_len, node_id->k, sizeof(node_id->k));
 
 	return true;
 }
@@ -118,6 +122,7 @@ bool derive_NUMS_point_at(u8 index, struct pubkey *nums_key)
 }
 
 bool generate_proof_of_dle(struct privkey *x, struct pubkey *j,
+			   struct node_id *node_id,
 			   struct proof_dle *podle)
 {
 	/* A proof of discrete log equivalence requires:
@@ -130,10 +135,10 @@ bool generate_proof_of_dle(struct privkey *x, struct pubkey *j,
 	 *  - the point 'P2', x*J
 	 *  - the point 'P', x*G
 	 *  - the commitment, sha256(P2)
-	 *  - e, sha256(kG || kJ || P || P2 ), and finally
+	 *  - e, sha256(kG || kJ || P || P2 || node_id ), and finally
 	 *  - the signature, k + x * e
 	 */
-	struct pubkey kG, p, kJ, p2, * pubkeys[E_MEMBERS];
+	struct pubkey kG, p, kJ, p2, * pubkeys[E_MEMBERS - 1];
 	unsigned char compressed[PUBKEY_CMPR_LEN];
 	unsigned char e_arr[E_LEN];
 	size_t clen = sizeof(compressed), pk_len = ARRAY_SIZE(pubkeys),
@@ -164,7 +169,7 @@ bool generate_proof_of_dle(struct privkey *x, struct pubkey *j,
 	pubkeys[1] = &kJ;
 	pubkeys[2] = &p;
 	pubkeys[3] = &p2;
-	if (!pack_e(e_arr, elen, pubkeys, pk_len))
+	if (!pack_e(e_arr, elen, pubkeys, pk_len, node_id))
 		return false;
 
 	/* Compute the commitment */
@@ -198,7 +203,8 @@ bool generate_proof_of_dle(struct privkey *x, struct pubkey *j,
 	return true;
 }
 
-bool verify_proof_of_dle(struct pubkey *p, struct pubkey *j, struct proof_dle *podle)
+bool verify_proof_of_dle(struct pubkey *p, struct pubkey *j,
+			 struct node_id *node_id, struct proof_dle *podle)
 {
 	/*
 	 * From https://joinmarket.me/blog/blog/poodle/
@@ -207,11 +213,11 @@ bool verify_proof_of_dle(struct pubkey *p, struct pubkey *j, struct proof_dle *p
 	 *  - sha256(P2) is equal to the original commitment
 	 *  - kG = sG - eP
 	 *  - kJ = sJ - eP2
-	 *  - sha256(kG || kJ || P || P2) == e
+	 *  - sha256(kG || kJ || P || P2 || node_id ) == e
 	 */
 	struct sha256 sha;
 	const secp256k1_pubkey *args[2];
-	struct pubkey eP, eP2, sG, sJ, kG, kJ, * pubkeys[E_MEMBERS];
+	struct pubkey eP, eP2, sG, sJ, kG, kJ, * pubkeys[E_MEMBERS - 1];
 	unsigned char compressed[PUBKEY_CMPR_LEN], neg_e[32],
 		      e_arr[E_LEN];
 	size_t clen = sizeof(compressed), elen = sizeof(e_arr),
@@ -272,7 +278,7 @@ bool verify_proof_of_dle(struct pubkey *p, struct pubkey *j, struct proof_dle *p
 	pubkeys[1] = &kJ;
 	pubkeys[2] = p;
 	pubkeys[3] = &podle->pk2;
-	if (!pack_e(e_arr, elen, pubkeys, pk_len))
+	if (!pack_e(e_arr, elen, pubkeys, pk_len, node_id))
 		return false;
 	sha256(&sha, e_arr, elen);
 
