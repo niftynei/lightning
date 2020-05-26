@@ -1,7 +1,10 @@
+from decimal import Decimal
 from fixtures import *  # noqa: F401,F403
 from fixtures import TEST_NETWORK
 from pyln.client import RpcError
-from utils import wait_for, sync_blockheight, COMPAT, VALGRIND, DEVELOPER
+from utils import wait_for, sync_blockheight, COMPAT, VALGRIND, DEVELOPER, only_one
+
+import base64
 import os
 import pytest
 import time
@@ -138,6 +141,23 @@ def test_scid_upgrade(node_factory, bitcoind):
 
     assert l1.db_query('SELECT short_channel_id from channels;') == [{'short_channel_id': '103x1x1'}]
     assert l1.db_query('SELECT failchannel from payments;') == [{'failchannel': '103x1x1'}]
+
+
+@unittest.skipIf(not COMPAT, "needs COMPAT to convert obsolete db")
+@unittest.skipIf(os.getenv('TEST_DB_PROVIDER', 'sqlite3') != 'sqlite3', "This test is based on a sqlite3 snapshot")
+@unittest.skipIf(TEST_NETWORK != 'regtest', "The network must match the DB snapshot")
+def test_last_tx_psbt_upgrade(node_factory, bitcoind):
+    bitcoind.generate_block(12)
+
+    l1 = node_factory.get_node(dbfile='last_tx_upgrade.sqlite3.xz')
+
+    b64_last_txs = [base64.b64encode(x['last_tx']).decode('utf-8') for x in l1.db_query('SELECT last_tx FROM channels;')]
+    for tx in b64_last_txs:
+        funding_input = only_one(bitcoind.rpc.decodepsbt(tx)['inputs'])
+        # Every opened channel was funded with the same amount: 1M sats
+        assert funding_input['witness_utxo']['amount'] == Decimal('0.01')
+        assert funding_input['witness_utxo']['scriptPubKey']['type'] == 'witness_v0_scripthash'
+        assert funding_input['witness_script']['type'] == 'multisig'
 
 
 @unittest.skipIf(VALGRIND and not DEVELOPER, "Without developer valgrind will complain about debug symbols missing")
