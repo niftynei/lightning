@@ -1570,6 +1570,46 @@ static void sign_all_inputs(struct bitcoin_tx *tx, struct utxo **utxos)
 	}
 }
 
+/* Find our inputs by the pubkey associated with the inputs, and
+ * add a partial sig for each */
+static void sign_our_inputs(struct utxo **utxos, struct wally_psbt *psbt)
+{
+	for (size_t i = 0; i < tal_count(utxos); i++) {
+		struct utxo *utxo = utxos[i];
+		for (size_t j = 0; j < psbt->num_inputs; j++) {
+			struct privkey privkey;
+			struct pubkey pubkey;
+
+			if (!wally_tx_input_spends(&psbt->tx->inputs[j],
+						   &utxo->txid, utxo->outnum))
+				continue;
+
+			hsm_key_for_utxo(&privkey, &pubkey, utxo);
+
+			/* This line is basically the entire reason we have
+			 * to iterate through to match the psbt input
+			 * to the UTXO -- otherwise we would just
+			 * call wally_sign_psbt for every utxo privkey
+			 * and be done with it. We can't do that though
+			 * because any UTXO that's derived from channel_info
+			 * requires the HSM to find the pubkey, and we
+			 * skip doing that until now as a bit of a reduction
+			 * of complexity in the calling code */
+			psbt_input_add_pubkey(psbt, j, &pubkey);
+
+			if (wally_sign_psbt(psbt, privkey.secret.data,
+					    sizeof(privkey.secret.data)) != WALLY_OK)
+				status_broken("Recieved wally_err attempting to "
+					      "sign utxo with key %s. PSBT: %s",
+					      type_to_string(tmpctx, struct pubkey,
+							     &pubkey),
+					      type_to_string(tmpctx, struct wally_psbt,
+							     psbt));
+
+		}
+	}
+}
+
 /*~ lightningd asks us to sign the transaction to fund a channel; it feeds us
  * the set of inputs and the local and remote pubkeys, and we sign it. */
 static struct io_plan *handle_sign_funding_tx(struct io_conn *conn,
@@ -1619,22 +1659,16 @@ static struct io_plan *handle_sign_withdrawal_tx(struct io_conn *conn,
 						 const u8 *msg_in)
 {
 	struct utxo **utxos;
-	struct bitcoin_tx *tx;
-	struct bitcoin_tx_output **outputs;
-	u32 nlocktime;
+	struct wally_psbt *psbt;
 
 	if (!fromwire_hsm_sign_withdrawal(tmpctx, msg_in,
-					  &outputs, &utxos, &nlocktime))
+					  &utxos, &psbt))
 		return bad_req(conn, c, msg_in);
 
-	tx = withdraw_tx(tmpctx, c->chainparams,
-			 cast_const2(const struct utxo **, utxos),
-			 outputs, NULL, nlocktime);
-
-	sign_all_inputs(tx, utxos);
+	sign_our_inputs(utxos, psbt);
 
 	return req_reply(conn, c,
-			 take(towire_hsm_sign_withdrawal_reply(NULL, tx)));
+			 take(towire_hsm_sign_withdrawal_reply(NULL, psbt)));
 }
 
 /*~ Lightning invoices, defined by BOLT 11, are signed.  This has been
