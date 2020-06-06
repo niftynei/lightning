@@ -49,7 +49,7 @@ void psbt_rm_output(struct wally_psbt *psbt,
 void psbt_input_add_pubkey(struct wally_psbt *psbt, size_t in,
 			   const struct pubkey *pubkey);
 
-void psbt_input_set_partial_sig(struct wally_psbt *psbt, size_t in,
+bool psbt_input_set_partial_sig(struct wally_psbt *psbt, size_t in,
 				const struct pubkey *pubkey,
 				const struct bitcoin_signature *sig);
 
