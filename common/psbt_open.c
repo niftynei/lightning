@@ -464,3 +464,17 @@ bool psbt_has_required_fields(struct wally_psbt *psbt)
 
 	return true;
 }
+
+#if EXPERIMENTAL_FEATURES
+void psbt_input_set_final_witness_stack(struct wally_psbt_input *in,
+					struct witness_element **elements)
+{
+	wally_tx_witness_stack_init_alloc(tal_count(elements),
+					  &in->final_witness);
+
+	for (size_t i = 0; i < tal_count(elements); i++)
+		wally_tx_witness_stack_add(in->final_witness,
+					   elements[i]->witness,
+					   tal_bytelen(elements[i]->witness));
+}
+#endif /* EXPERIMENTAL_FEATURES */
