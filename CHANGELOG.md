@@ -18,7 +18,7 @@ This release named by Sergi Delgado Segura.
  - JSON-RPC: `notifications` command to enable notifications. ([4046](https://github.com/ElementsProject/lightning/pull/4046))
  - JSON-RPC: `multifundchannel` has a new optional argument, 'commitment_feerate', which can be used to differentiate between the funding feerate and the channel's initial commitment feerate ([4139](https://github.com/ElementsProject/lightning/pull/4139))
  - JSON-RPC `fundchannel` now accepts an optional 'close_to' param, a bitcoin address that the channel funding should be sent to on close. Requires `opt_upfront_shutdownscript` ([4132](https://github.com/ElementsProject/lightning/pull/4132))
- - Plugins: Channel closure resaon/cause to channel_state_changed notification ([4126](https://github.com/ElementsProject/lightning/pull/4126))
+ - Plugins: Channel closure reason/cause to channel_state_changed notification ([4126](https://github.com/ElementsProject/lightning/pull/4126))
  - Plugins: `htlc_accepted` hook can now return custom `failure_onion`. ([4187](https://github.com/ElementsProject/lightning/pull/4187))
  - Plugins: hooks can now specify that they must be called 'before' or 'after' other plugins. ([4168](https://github.com/ElementsProject/lightning/pull/4168))
  - hsmtool: a new command was added to hsmtool for dumping descriptors of the onchain wallet ([4171](https://github.com/ElementsProject/lightning/pull/4171))
