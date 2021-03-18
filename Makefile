@@ -376,14 +376,7 @@ endif
 
 check-units:
 
-check: check-units installcheck pytest check-protos
-
-check-protos: $(ALL_PROGRAMS)
-ifeq ($(PYTEST),)
-	@echo "py.test is required to run the protocol tests, please install using 'pip3 install -r requirements.txt', and rerun 'configure'."
-else
-	@cd external/lnprototest && PYTHONPATH=$(PYTHONPATH) LIGHTNING_SRC=../.. $(PYTEST) --runner lnprototest.clightning.Runner $(PYTEST_OPTS) && cd -
-endif
+check: check-units installcheck pytest
 
 pytest: $(ALL_PROGRAMS)
 ifeq ($(PYTEST),)
