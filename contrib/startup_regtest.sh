@@ -88,6 +88,7 @@ start_nodes() {
 		log-level=debug
 		log-file=/tmp/l$i-$network/log
 		addr=localhost:$socket
+		experimental-dual-fund
 		EOF
 
 		# If we've configured to use developer, add dev options
