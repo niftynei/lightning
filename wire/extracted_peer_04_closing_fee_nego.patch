@@ -1,0 +1,13 @@
+--- wire/peer_wire.csv	2021-05-18 11:15:05.539134131 -0500
++++ -	2021-05-18 11:15:15.690789516 -0500
+@@ -90,6 +90,10 @@
+ msgdata,closing_signed,channel_id,channel_id,
+ msgdata,closing_signed,fee_satoshis,u64,
+ msgdata,closing_signed,signature,signature,
++msgdata,closing_signed,tlvs,closing_signed_tlvs,
++tlvtype,closing_signed_tlvs,fee_range,1
++tlvdata,closing_signed_tlvs,fee_range,min_fee_satoshis,u64,
++tlvdata,closing_signed_tlvs,fee_range,max_fee_satoshis,u64,
+ msgtype,update_add_htlc,128
+ msgdata,update_add_htlc,channel_id,channel_id,
+ msgdata,update_add_htlc,id,u64,

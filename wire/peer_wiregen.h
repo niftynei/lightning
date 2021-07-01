@@ -99,6 +99,10 @@ struct tlv_shutdown_tlvs_wrong_funding {
         struct bitcoin_txid txid;
         u32 outnum;
 };
+struct tlv_closing_signed_tlvs_fee_range {
+        struct amount_sat min_fee_satoshis;
+        struct amount_sat max_fee_satoshis;
+};
 struct tlv_query_short_channel_ids_tlvs_query_flags {
         u8 encoding_type;
         u8 *encoded_query_flags;
@@ -174,6 +178,14 @@ struct tlv_shutdown_tlvs {
 	/* TODO The following explicit fields could just point into the
 	 * tlv_field entries above to save on memory. */
         struct tlv_shutdown_tlvs_wrong_funding *wrong_funding;
+};
+struct tlv_closing_signed_tlvs {
+        /* Raw fields including unknown ones. */
+        struct tlv_field *fields;
+
+	/* TODO The following explicit fields could just point into the
+	 * tlv_field entries above to save on memory. */
+        struct tlv_closing_signed_tlvs_fee_range *fee_range;
 };
 struct tlv_query_short_channel_ids_tlvs {
         /* Raw fields including unknown ones. */
@@ -529,6 +541,43 @@ void towire_shutdown_tlvs(u8 **pptr, const struct tlv_shutdown_tlvs *record);
 bool shutdown_tlvs_is_valid(const struct tlv_shutdown_tlvs *record,
 			  size_t *err_index);
 
+struct tlv_closing_signed_tlvs *tlv_closing_signed_tlvs_new(const tal_t *ctx);
+
+/**
+ * Deserialize a TLV stream for the closing_signed_tlvs namespace.
+ *
+ * This function will parse any TLV stream, as long as the type, length and
+ * value fields are formatted correctly. Fields that are not known in the
+ * current namespace are stored in the `fields` member. Validity can be
+ * checked using closing_signed_tlvs_is_valid.
+ */
+bool fromwire_closing_signed_tlvs(const u8 **cursor, size_t *max,
+			  struct tlv_closing_signed_tlvs * record);
+
+/**
+ * Serialize a TLV stream for the closing_signed_tlvs namespace.
+ *
+ * This function only considers known fields from the closing_signed_tlvs namespace,
+ * and will ignore any fields that may be stored in the `fields` member. This
+ * ensures that the resulting stream is valid according to
+ * `closing_signed_tlvs_is_valid`.
+ */
+void towire_closing_signed_tlvs(u8 **pptr, const struct tlv_closing_signed_tlvs *record);
+
+/**
+ * Check that the TLV stream is valid.
+ *
+ * Enforces the followin validity rules:
+ * - Types must be in monotonic non-repeating order
+ * - We must understand all even types
+ *
+ * Returns false if an error was detected, otherwise returns true. If err_index
+ * is non-null and we detect an error it is set to the index of the first error
+ * detected.
+ */
+bool closing_signed_tlvs_is_valid(const struct tlv_closing_signed_tlvs *record,
+			  size_t *err_index);
+
 struct tlv_query_short_channel_ids_tlvs *tlv_query_short_channel_ids_tlvs_new(const tal_t *ctx);
 
 /**
@@ -778,8 +827,8 @@ u8 *towire_shutdown(const tal_t *ctx, const struct channel_id *channel_id, const
 bool fromwire_shutdown(const tal_t *ctx, const void *p, struct channel_id *channel_id, u8 **scriptpubkey, struct tlv_shutdown_tlvs *tlvs);
 
 /* WIRE: CLOSING_SIGNED */
-u8 *towire_closing_signed(const tal_t *ctx, const struct channel_id *channel_id, struct amount_sat fee_satoshis, const secp256k1_ecdsa_signature *signature);
-bool fromwire_closing_signed(const void *p, struct channel_id *channel_id, struct amount_sat *fee_satoshis, secp256k1_ecdsa_signature *signature);
+u8 *towire_closing_signed(const tal_t *ctx, const struct channel_id *channel_id, struct amount_sat fee_satoshis, const secp256k1_ecdsa_signature *signature, const struct tlv_closing_signed_tlvs *tlvs);
+bool fromwire_closing_signed(const void *p, struct channel_id *channel_id, struct amount_sat *fee_satoshis, secp256k1_ecdsa_signature *signature, struct tlv_closing_signed_tlvs *tlvs);
 
 /* WIRE: UPDATE_ADD_HTLC */
 u8 *towire_update_add_htlc(const tal_t *ctx, const struct channel_id *channel_id, u64 id, struct amount_msat amount_msat, const struct sha256 *payment_hash, u32 cltv_expiry, const u8 onion_routing_packet[1366]);
@@ -859,4 +908,4 @@ bool fromwire_channel_update_option_channel_htlc_max(const void *p, secp256k1_ec
 
 
 #endif /* LIGHTNING_WIRE_PEER_WIREGEN_H */
-// SHA256STAMP:d4f6f16581d26f95c512a5a98e962abe529ff37a70a7563bd41f25ac802bdb63
+// SHA256STAMP:fc3f11a2f65e54398d8736b4db8458bf9582651ccddb9370954b2e182fce8cfc

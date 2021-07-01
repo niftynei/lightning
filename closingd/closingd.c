@@ -187,7 +187,7 @@ static void send_offer(struct per_peer_state *pps,
 		     type_to_string(tmpctx, struct amount_sat, &fee_to_offer));
 
 	assert(our_sig.sighash_type == SIGHASH_ALL);
-	msg = towire_closing_signed(NULL, channel_id, fee_to_offer, &our_sig.s);
+	msg = towire_closing_signed(NULL, channel_id, fee_to_offer, &our_sig.s, NULL);
 	sync_crypto_write(pps, take(msg));
 }
 
@@ -231,6 +231,7 @@ receive_offer(struct per_peer_state *pps,
 	struct amount_sat received_fee;
 	struct bitcoin_signature their_sig;
 	struct bitcoin_tx *tx;
+	struct tlv_closing_signed_tlvs *close_tlvs;
 
 	/* Wait for them to say something interesting */
 	do {
@@ -254,8 +255,10 @@ receive_offer(struct per_peer_state *pps,
 	} while (!msg);
 
 	their_sig.sighash_type = SIGHASH_ALL;
+	close_tlvs = tlv_closing_signed_tlvs_new(msg);
 	if (!fromwire_closing_signed(msg, &their_channel_id,
-				     &received_fee, &their_sig.s))
+				     &received_fee, &their_sig.s,
+				     close_tlvs))
 		peer_failed_warn(pps, channel_id,
 				 "Expected closing_signed: %s",
 				 tal_hex(tmpctx, msg));

@@ -748,6 +748,63 @@ bool shutdown_tlvs_is_valid(const struct tlv_shutdown_tlvs *record, size_t *err_
 }
 
 
+struct tlv_closing_signed_tlvs *tlv_closing_signed_tlvs_new(const tal_t *ctx)
+{
+	/* Initialize everything to NULL. (Quiet, C pedants!) */
+	struct tlv_closing_signed_tlvs *inst = talz(ctx, struct tlv_closing_signed_tlvs);
+
+	/* Initialized the fields to an empty array. */
+	inst->fields = tal_arr(inst, struct tlv_field, 0);
+	return inst;
+}
+
+/* CLOSING_SIGNED_TLVS MSG: fee_range */
+static u8 *towire_tlv_closing_signed_tlvs_fee_range(const tal_t *ctx, const void *vrecord)
+{
+	const struct tlv_closing_signed_tlvs *r = vrecord;
+	u8 *ptr;
+
+	if (!r->fee_range)
+		return NULL;
+
+
+	ptr = tal_arr(ctx, u8, 0);
+
+	towire_amount_sat(&ptr, r->fee_range->min_fee_satoshis);
+
+	towire_amount_sat(&ptr, r->fee_range->max_fee_satoshis);
+	return ptr;
+}
+static void fromwire_tlv_closing_signed_tlvs_fee_range(const u8 **cursor, size_t *plen, void *vrecord)
+{
+	struct tlv_closing_signed_tlvs *r = vrecord;
+
+	r->fee_range = tal(r, struct tlv_closing_signed_tlvs_fee_range);
+	r->fee_range->min_fee_satoshis = fromwire_amount_sat(cursor, plen);
+	r->fee_range->max_fee_satoshis = fromwire_amount_sat(cursor, plen);
+}
+
+static const struct tlv_record_type tlvs_closing_signed_tlvs[] = {
+	{ 1, towire_tlv_closing_signed_tlvs_fee_range, fromwire_tlv_closing_signed_tlvs_fee_range },
+};
+
+void towire_closing_signed_tlvs(u8 **pptr, const struct tlv_closing_signed_tlvs *record)
+{
+	towire_tlv(pptr, tlvs_closing_signed_tlvs, 1, record);
+}
+
+
+bool fromwire_closing_signed_tlvs(const u8 **cursor, size_t *max, struct tlv_closing_signed_tlvs *record)
+{
+	return fromwire_tlv(cursor, max, tlvs_closing_signed_tlvs, 1, record, &record->fields);
+}
+
+bool closing_signed_tlvs_is_valid(const struct tlv_closing_signed_tlvs *record, size_t *err_index)
+{
+	return tlv_fields_valid(record->fields, NULL, err_index);
+}
+
+
 struct tlv_query_short_channel_ids_tlvs *tlv_query_short_channel_ids_tlvs_new(const tal_t *ctx)
 {
 	/* Initialize everything to NULL. (Quiet, C pedants!) */
@@ -1705,7 +1762,7 @@ bool fromwire_shutdown(const tal_t *ctx, const void *p, struct channel_id *chann
 }
 
 /* WIRE: CLOSING_SIGNED */
-u8 *towire_closing_signed(const tal_t *ctx, const struct channel_id *channel_id, struct amount_sat fee_satoshis, const secp256k1_ecdsa_signature *signature)
+u8 *towire_closing_signed(const tal_t *ctx, const struct channel_id *channel_id, struct amount_sat fee_satoshis, const secp256k1_ecdsa_signature *signature, const struct tlv_closing_signed_tlvs *tlvs)
 {
 	u8 *p = tal_arr(ctx, u8, 0);
 
@@ -1713,10 +1770,11 @@ u8 *towire_closing_signed(const tal_t *ctx, const struct channel_id *channel_id,
 	towire_channel_id(&p, channel_id);
 	towire_amount_sat(&p, fee_satoshis);
 	towire_secp256k1_ecdsa_signature(&p, signature);
+	towire_closing_signed_tlvs(&p, tlvs);
 
 	return memcheck(p, tal_count(p));
 }
-bool fromwire_closing_signed(const void *p, struct channel_id *channel_id, struct amount_sat *fee_satoshis, secp256k1_ecdsa_signature *signature)
+bool fromwire_closing_signed(const void *p, struct channel_id *channel_id, struct amount_sat *fee_satoshis, secp256k1_ecdsa_signature *signature, struct tlv_closing_signed_tlvs *tlvs)
 {
 	const u8 *cursor = p;
 	size_t plen = tal_count(p);
@@ -1726,6 +1784,7 @@ bool fromwire_closing_signed(const void *p, struct channel_id *channel_id, struc
  	fromwire_channel_id(&cursor, &plen, channel_id);
  	*fee_satoshis = fromwire_amount_sat(&cursor, &plen);
  	fromwire_secp256k1_ecdsa_signature(&cursor, &plen, signature);
+ 	fromwire_closing_signed_tlvs(&cursor, &plen, tlvs);
 	return cursor != NULL;
 }
 
@@ -2330,4 +2389,4 @@ bool fromwire_channel_update_option_channel_htlc_max(const void *p, secp256k1_ec
  	*htlc_maximum_msat = fromwire_amount_msat(&cursor, &plen);
 	return cursor != NULL;
 }
-// SHA256STAMP:d4f6f16581d26f95c512a5a98e962abe529ff37a70a7563bd41f25ac802bdb63
+// SHA256STAMP:fc3f11a2f65e54398d8736b4db8458bf9582651ccddb9370954b2e182fce8cfc

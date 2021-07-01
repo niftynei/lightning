@@ -518,6 +518,33 @@ static const struct tlv_print_record_type print_tlvs_shutdown_tlvs[] = {
 	{ 100, printwire_tlv_shutdown_tlvs_wrong_funding },
 };
 
+static void printwire_tlv_closing_signed_tlvs_fee_range(const char *fieldname, const u8 **cursor, size_t *plen)
+{
+	printf("(msg_name=%s)\n", "fee_range");
+
+	printf("min_fee_satoshis=");
+	struct amount_sat min_fee_satoshis = fromwire_amount_sat(cursor, plen);
+
+	printwire_amount_sat(tal_fmt(NULL, "%s.min_fee_satoshis", fieldname), &min_fee_satoshis);
+	if (!*cursor) {
+		printf("**TRUNCATED**\n");
+		return;
+	}
+ 	printf("max_fee_satoshis=");
+	struct amount_sat max_fee_satoshis = fromwire_amount_sat(cursor, plen);
+
+	printwire_amount_sat(tal_fmt(NULL, "%s.max_fee_satoshis", fieldname), &max_fee_satoshis);
+	if (!*cursor) {
+		printf("**TRUNCATED**\n");
+		return;
+	}
+
+}
+
+static const struct tlv_print_record_type print_tlvs_closing_signed_tlvs[] = {
+	{ 1, printwire_tlv_closing_signed_tlvs_fee_range },
+};
+
 static void printwire_tlv_query_short_channel_ids_tlvs_query_flags(const char *fieldname, const u8 **cursor, size_t *plen)
 {
 	printf("(msg_name=%s)\n", "query_flags");
@@ -1924,6 +1951,8 @@ void printwire_closing_signed(const char *fieldname, const u8 *cursor)
 		printf("**TRUNCATED**\n");
 		return;
 	}
+ 	printf("tlvs=");
+	printwire_tlvs(tal_fmt(NULL, "%s.tlvs", fieldname), &cursor, &plen, print_tlvs_closing_signed_tlvs, ARRAY_SIZE(print_tlvs_closing_signed_tlvs));
 
 
 	if (plen != 0)
@@ -2922,6 +2951,9 @@ void printpeer_wire_tlv_message(const char *tlv_name, const u8 *msg) {
 	if (strcmp(tlv_name, "shutdown_tlvs") == 0) {
 		printwire_tlvs(tlv_name, &msg, &plen, print_tlvs_shutdown_tlvs, ARRAY_SIZE(print_tlvs_shutdown_tlvs));
 	}
+	if (strcmp(tlv_name, "closing_signed_tlvs") == 0) {
+		printwire_tlvs(tlv_name, &msg, &plen, print_tlvs_closing_signed_tlvs, ARRAY_SIZE(print_tlvs_closing_signed_tlvs));
+	}
 	if (strcmp(tlv_name, "query_short_channel_ids_tlvs") == 0) {
 		printwire_tlvs(tlv_name, &msg, &plen, print_tlvs_query_short_channel_ids_tlvs, ARRAY_SIZE(print_tlvs_query_short_channel_ids_tlvs));
 	}
@@ -2935,4 +2967,4 @@ void printpeer_wire_tlv_message(const char *tlv_name, const u8 *msg) {
 		printwire_tlvs(tlv_name, &msg, &plen, print_tlvs_onion_message_tlvs, ARRAY_SIZE(print_tlvs_onion_message_tlvs));
 	}
 }
-// SHA256STAMP:d4f6f16581d26f95c512a5a98e962abe529ff37a70a7563bd41f25ac802bdb63
+// SHA256STAMP:fc3f11a2f65e54398d8736b4db8458bf9582651ccddb9370954b2e182fce8cfc
