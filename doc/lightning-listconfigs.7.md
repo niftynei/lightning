@@ -55,6 +55,7 @@ On success, an object is returned, containing:
 - **experimental-dual-fund** (boolean, optional): `experimental-dual-fund` field from config or cmdline, or default
 - **experimental-onion-messages** (boolean, optional): `experimental-onion-messages` field from config or cmdline, or default
 - **experimental-offers** (boolean, optional): `experimental-offers` field from config or cmdline, or default
+- **experimental-quick-close** (boolean, optional): `experimental-quick-close` field from config or cmdline, or default
 - **experimental-shutdown-wrong-funding** (boolean, optional): `experimental-shutdown-wrong-funding` field from config or cmdline, or default
 - **rgb** (hex, optional): `rgb` field from config or cmdline, or default (always 6 characters)
 - **alias** (string, optional): `alias` field from config or cmdline, or default
@@ -203,4 +204,4 @@ RESOURCES
 ---------
 
 Main web site: <https://github.com/ElementsProject/lightning>
-[comment]: # ( SHA256STAMP:3c3f2cd354ef5b33ad34febd29b04b1861c62d545c6a5b9181eb2b2b3880258f)
+[comment]: # ( SHA256STAMP:bab5ca4435146e807d628d4a882c1148b94ddcba23c176a865ea634ba725ed59)

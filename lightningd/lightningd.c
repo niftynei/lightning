@@ -290,6 +290,11 @@ static struct lightningd *new_lightningd(const tal_t *ctx)
 	 * each invoice we generate has a different set of channels.  */
 	ld->rr_counter = 0;
 
+	/*~ We don't enable new network features until they've been approved
+	 * and tested in the spec (i.e. some other implementation has also
+	 * implemented and tested!).  Until then we use a flag: */
+	ld->use_quickclose = false;
+
 	return ld;
 }
 
