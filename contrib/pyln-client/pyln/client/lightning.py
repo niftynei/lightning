@@ -515,7 +515,7 @@ class LightningRpc(UnixDomainSocketRpc):
         payload.update({k: v for k, v in kwargs.items()})
         return self.call("check", payload)
 
-    def close(self, peer_id, unilateraltimeout=None, destination=None, fee_negotiation_step=None):
+    def close(self, peer_id, unilateraltimeout=None, destination=None, fee_negotiation_step=None, feerange=None):
         """
         Close the channel with peer {id}, forcing a unilateral
         close after {unilateraltimeout} seconds if non-zero, and
@@ -525,7 +525,8 @@ class LightningRpc(UnixDomainSocketRpc):
             "id": peer_id,
             "unilateraltimeout": unilateraltimeout,
             "destination": destination,
-            "fee_negotiation_step": fee_negotiation_step
+            "fee_negotiation_step": fee_negotiation_step,
+            "feerange": feerange,
         }
         return self.call("close", payload)
 
