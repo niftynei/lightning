@@ -1,22 +1,22 @@
 {
-    "$schema": "http://json-schema.org/draft-07/schema#",
-    "type": "object",
-    "additionalProperties": false,
-    "required": [ "peers" ],
+    "$schema": "http://json-schema.org/draft-07/schema#"
+    "type": "object"
+    "additionalProperties": false
+    "required": [ "peers" ]
     "properties": {
 	"peers": {
-	    "type": "array",
+	    "type": "array"
 	    "items": {
-		"type": "object",
-		"additionalProperties": true,
-		"required": [ "id", "connected", "channels" ],
+		"type": "object"
+		"additionalProperties": true
+		"required": [ "id", "connected", "channels" ]
 		"properties": {
 		    "id": {
-			"type": "pubkey",
+			"type": "pubkey"
 			"description": "the public key of the peer"
-		    },
+		    }
 		    "connected": {
-			"type": "boolean",
+			"type": "boolean"
 			"description": "True if the peer is currently connected"
 		    },
 		    "log": {
