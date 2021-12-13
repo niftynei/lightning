@@ -94,7 +94,7 @@ doc-all: fmt-schema $(MANPAGES) doc/index.rst
 #FIXME(vincenzopalazzo) we don't need to change a file if it is well format,
 #so we can use diff to check difference in the real json and in the .fmt
 fmt-schema:
-	@echo "Checking schema fmt!"
+	@$(ECHO) "Checking schema fmt!"
 	@for f in $$(find doc/schemas -type f -name '*.json'); do cat "$$f" | jq . > "$$f.fmt" ; mv "$$f.fmt" "$$f" ; done
 
 check-doc: check-config-docs check-manpages
