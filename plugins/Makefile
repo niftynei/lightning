@@ -89,11 +89,6 @@ PLUGINS :=					\
 	plugins/txprepare			\
 	plugins/spenderp
 
-# Make sure these depend on everything.
-ALL_C_SOURCES += $(PLUGIN_ALL_SRC)
-ALL_C_HEADERS += $(PLUGIN_ALL_HEADER)
-ALL_PROGRAMS += $(PLUGINS)
-
 PLUGIN_COMMON_OBJS :=				\
 	bitcoin/base58.o			\
 	bitcoin/block.o				\
@@ -146,6 +141,11 @@ PLUGIN_COMMON_OBJS :=				\
 	wire/towire.o
 
 include plugins/bkpr/Makefile
+
+# Make sure these depend on everything.
+ALL_C_SOURCES += $(PLUGIN_ALL_SRC)
+ALL_C_HEADERS += $(PLUGIN_ALL_HEADER)
+ALL_PROGRAMS += $(PLUGINS)
 
 # Make all plugins depend on all plugin headers, for simplicity.
 $(PLUGIN_ALL_OBJS): $(PLUGIN_ALL_HEADER)
