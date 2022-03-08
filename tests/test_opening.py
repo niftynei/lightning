@@ -193,10 +193,12 @@ def test_v2_open_sigs_restart_while_dead(node_factory, bitcoind):
     l1, l2 = node_factory.get_nodes(2,
                                     opts=[{'disconnect': disconnects_1,
                                            'may_reconnect': True,
-                                           'may_fail': True},
+                                           'may_fail': True,
+                                           'disable-plugin': 'bookkeeper'},
                                           {'disconnect': disconnects_2,
                                            'may_reconnect': True,
-                                           'may_fail': True}])
+                                           'may_fail': True,
+                                           'disable-plugin': 'bookkeeper'}])
 
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     amount = 2**24
@@ -814,7 +816,10 @@ def test_rbf_no_overlap(node_factory, bitcoind, chainparams):
 def test_rbf_fails_to_broadcast(node_factory, bitcoind, chainparams):
     l1, l2 = node_factory.get_nodes(2,
                                     opts={'allow_warning': True,
-                                          'may_reconnect': True})
+                                          'may_reconnect': True,
+                                          # has a restart w/ an incomplete
+                                          # channel
+                                          'disable-plugin': 'bookkeeper'})
 
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
     amount = 2**24

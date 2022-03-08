@@ -2091,7 +2091,9 @@ def test_multifunding_best_effort(node_factory, bitcoind):
 @pytest.mark.openchannel('v1')
 @pytest.mark.openchannel('v2')
 def test_lockin_between_restart(node_factory, bitcoind):
-    l1 = node_factory.get_node(may_reconnect=True)
+    l1 = node_factory.get_node(may_reconnect=True,
+                               # Restart with a unconfirmed channel
+                               options={'disable-plugin': 'bookkeeper'})
     l2 = node_factory.get_node(options={'funding-confirms': 3},
                                may_reconnect=True)
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
