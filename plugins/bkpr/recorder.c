@@ -1131,7 +1131,8 @@ void maybe_update_account(struct db *db,
 			  struct account *acct,
 			  struct chain_event *e,
 			  const enum mvt_tag *tags,
-			  u32 closed_count)
+			  u32 closed_count,
+			  struct node_id *peer_id)
 {
 	struct db_stmt *stmt;
 	bool updated = false;
@@ -1179,6 +1180,11 @@ void maybe_update_account(struct db *db,
 		}
 	}
 
+	if (peer_id) {
+		updated = true;
+		acct->peer_id = tal_dup(acct, struct node_id, peer_id);
+	}
+
 	if (closed_count > 0) {
 		updated = true;
 		acct->closed_count = closed_count;
@@ -1195,6 +1201,7 @@ void maybe_update_account(struct db *db,
 				     ", we_opened = ?"
 				     ", leased = ?"
 				     ", closed_count = ?"
+				     ", peer_id = ?"
 				     " WHERE"
 				     " name = ?"));
 
@@ -1211,8 +1218,12 @@ void maybe_update_account(struct db *db,
 	db_bind_int(stmt, 2, acct->we_opened ? 1 : 0);
 	db_bind_int(stmt, 3, acct->leased ? 1 : 0);
 	db_bind_int(stmt, 4, acct->closed_count);
+	if (acct->peer_id)
+		db_bind_node_id(stmt, 5, acct->peer_id);
+	else
+		db_bind_null(stmt, 5);
 
-	db_bind_text(stmt, 5, acct->name);
+	db_bind_text(stmt, 6, acct->name);
 
 	db_exec_prepared_v2(take(stmt));
 }
