@@ -656,12 +656,8 @@ def test_reconnect_no_update(node_factory, executor, bitcoind):
     disconnects = ["-WIRE_FUNDING_LOCKED", "-WIRE_SHUTDOWN"]
     # Allow bad gossip because it might receive WIRE_CHANNEL_UPDATE before
     # announcement of the disconnection
-    l1 = node_factory.get_node(may_reconnect=True, allow_bad_gossip=True,
-                               # No bookkeeper, gets hammered by memleak
-                               options={'disable-plugin': 'bookkeeper'})
-    l2 = node_factory.get_node(disconnect=disconnects, may_reconnect=True,
-                               # No bookkeeper, gets hammered by memleak
-                               options={'disable-plugin': 'bookkeeper'})
+    l1 = node_factory.get_node(may_reconnect=True, allow_bad_gossip=True})
+    l2 = node_factory.get_node(disconnect=disconnects, may_reconnect=True})
 
     # For channeld reconnection
     l1.rpc.connect(l2.info["id"], "localhost", l2.port)
@@ -2095,9 +2091,7 @@ def test_multifunding_best_effort(node_factory, bitcoind):
 @pytest.mark.openchannel('v1')
 @pytest.mark.openchannel('v2')
 def test_lockin_between_restart(node_factory, bitcoind):
-    l1 = node_factory.get_node(may_reconnect=True,
-                               # Restart with a unconfirmed channel
-                               options={'disable-plugin': 'bookkeeper'})
+    l1 = node_factory.get_node(may_reconnect=True)
     l2 = node_factory.get_node(options={'funding-confirms': 3},
                                may_reconnect=True)
     l1.rpc.connect(l2.info['id'], 'localhost', l2.port)

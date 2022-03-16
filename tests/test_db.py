@@ -345,8 +345,6 @@ def test_local_basepoints_cache(bitcoind, node_factory):
     l1 = node_factory.get_node(
         dbfile='no-local-basepoints.sqlite3.xz',
         start=False,
-        # Restart triggers memleak (goes to look up missing channel data)
-        options={'disable-plugin': 'bookkeeper'},
     )
 
     fields = [

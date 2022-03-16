@@ -3275,11 +3275,7 @@ def test_segwit_shutdown_script(node_factory, bitcoind, executor):
     """
 Try a range of future segwit versions as shutdown scripts.  We create many nodes, so this is quite slow under valgrind
 """
-    l1 = node_factory.get_node(allow_warning=True,
-                               # Stopping and restarting triggers memleak
-                               # on restart (goes to look up missing channel
-                               # data)
-                               options={'disable-plugin': 'bookkeeper'})
+    l1 = node_factory.get_node(allow_warning=True)
 
     # BOLT #2:
     # 5. if (and only if) `option_shutdown_anysegwit` is negotiated:
