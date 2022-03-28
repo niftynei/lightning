@@ -1218,7 +1218,7 @@ def test_hsmtool_guess_to_remote_non_anchor(node_factory, bitcoind):
     sync_blockheight(bitcoind, [l2])
     log = l2.daemon.wait_for_log(r'Script to-them: ')
     m = re.search(r'Script to-them: ([a-f0-9]{44})', log)
-    onchain_addr = bitcoind.rpc.decodescript(m.group(1))['address']
+    onchain_addr = bitcoind.rpc.decodescript(m.group(1))['segwit']['address']
 
     # Now try using the hsmtool to find the thing
     hsm_path = os.path.join(l1.daemon.lightning_dir, TEST_NETWORK, "hsm_secret")
@@ -1234,7 +1234,7 @@ def test_hsmtool_guess_to_remote_non_anchor(node_factory, bitcoind):
 
 @unittest.skipIf(TEST_NETWORK == 'liquid-regtest', 'v2 channels not available')
 @pytest.mark.openchannel('v2')
-@pytest.mark.developer("requres 'dev-queryrates'")
+@pytest.mark.developer("requires 'dev-queryrates'")
 def test_hsmtool_guess_to_remote_anchor(node_factory, bitcoind):
     opts = {'funder-policy': 'match', 'funder-policy-mod': 100,
             'lease-fee-base-msat': '100sat', 'lease-fee-basis': 100,

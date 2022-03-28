@@ -432,7 +432,7 @@ static int guess_to_remote(const char *address, struct node_id *node_id,
 		 * block csv lock.
 		 *    <remote_pubkey> OP_CHECKSIGVERIFY 1 OP_CHECKSEQUENCEVERIFY
 		 */
-		/* BOLT- #3
+		/* BOLT-cb691777fb4263eadb68e6a8331ccadd14aa9793 #3
 		 * ##### Leased channel (`option_will_fund`)
 		 *
 		 * If a `lease` applies to the channel, the `to_remote` output
@@ -464,7 +464,7 @@ static int guess_to_remote(const char *address, struct node_id *node_id,
 		}
 	}
 
-	printf("Could not find any basepoint matching the provided witness programm.\n"
+	printf("Could not find any basepoint matching the provided witness program.\n"
 	       "Are you sure that the channel used `option_static_remotekey` ?\n");
 	return 1;
 }
