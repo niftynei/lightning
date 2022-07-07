@@ -1,17 +1,35 @@
-- move channel into stfu mode; fail if already in stfu mode
-- send splice 
-- negotiate the tx 
-	- reuse the interactive transaction building messages (init_rbf -> )
-- on reconnect, restart
-- tx_complete rcvd, validate splice tx
-- tx-sigs are exchanged... move out of stfu mode
-- broadcast signed splice tx
+- move channel into stfu mode ✅
+-- fail if already in stfu mode ✅
+-- handle simultaneously stfu conflict (both are intiator) ✅
+- send splice ✅
+- negotiate the tx ✅
+	- reuse the interactive transaction building messages (init_rbf -> ) ✅
+- on reconnect, restart ✅
+- audit memory usage ✅
+- tx_complete rcvd, validate splice tx as dual open does ✅
+- tx_complete rcvd, validate splice tx conforms to splice spec
+- bytes per side and calculate correct fee
+- make send_commitment work ✅
+- tx-sigs are exchanged... move out of stfu mode ✅
+-- (intiator side) ✅
+-- (ack side) ✅
+- confirm signed splice tx sigs are valid ✅
+-- (intiator side) ✅
+-- (ack side) ✅
+- broadcast signed splice tx ✅
+-- (initiator side) ✅
+-- (ack side) ✅
+- detect onchain confirmation of splice ✅
+-- make sure existing close detection doesnt break
+- handle broadcast sending splice tx to chain errors gracefully (see dualopen) ✅
+- add the splice into the inflights ✅
 - on reconnect, handle re-transmission of tx-sigs
-- normal channel operation; 
-	- every commit_sigs, send commitment signatures for splice tx as well
+- normal channel operation; ✅
+	- every commit_sigs, send commitment signatures for splice tx as well ✅
 	- bound the amount to route to the new splice amounts (min inprogress balance)
-- splice_locked sent + rcvd;
+- (on tx confirm + 6 blocks) splice_locked sent + rcvd;
 	- clear out all inflight splice txs
 	- delete all commitment_sig data related to it
 	- update funding tx to be new thing whatever
+- do the gossip things
 - go back to "normal" channel operation (no extra commit_sigs or splice amount checks)
