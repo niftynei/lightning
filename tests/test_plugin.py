@@ -2962,6 +2962,19 @@ def test_commando_badrune(node_factory):
                     pass
 
 
+def test_invoice_pay_hook(node_factory):
+    l1, l2 = node_factory.line_graph(2, opts={'may_reconnect': True},
+                                     wait_for_announce=True)
+
+    invoice_amt = 191939
+    # money is on the right side??
+    invoice = l2.rpc.invoice(invoice_amt, "label", "desc")
+
+    l1.rpc.pay(invoice['bolt11'])
+
+    assert False
+
+
 def test_autoclean(node_factory):
     l1, l2, l3 = node_factory.line_graph(3, opts={'autoclean-cycle': 10,
                                                   'may_reconnect': True},

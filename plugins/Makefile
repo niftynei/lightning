@@ -36,7 +36,11 @@ PLUGIN_OFFERS_HEADER := $(PLUGIN_OFFERS_SRC:.c=.h)
 
 PLUGIN_FETCHINVOICE_SRC := plugins/fetchinvoice.c
 PLUGIN_FETCHINVOICE_OBJS := $(PLUGIN_FETCHINVOICE_SRC:.c=.o)
-PLUGIN_FETCHINVOICE_HEADER := 
+PLUGIN_FETCHINVOICE_HEADER :=
+
+PLUGIN_INVOICE_PAYMENT_SRC := plugins/invoice-pay.c
+PLUGIN_INVOICE_PAYMENT_OBJS := $(PLUGIN_INVOICE_PAYMENT_SRC:.c=.o)
+PLUGIN_INVOICE_PAYMENT_HEADER :=
 
 PLUGIN_SPENDER_SRC :=				\
 	plugins/spender/fundchannel.c		\
@@ -65,6 +69,7 @@ PLUGIN_ALL_SRC :=				\
 	$(PLUGIN_BCLI_SRC)			\
 	$(PLUGIN_COMMANDO_SRC)			\
 	$(PLUGIN_FETCHINVOICE_SRC)		\
+	$(PLUGIN_INVOICE_PAYMENT_SRC)		\
 	$(PLUGIN_FUNDER_SRC)			\
 	$(PLUGIN_TOPOLOGY_SRC)			\
 	$(PLUGIN_KEYSEND_SRC)			\
@@ -89,6 +94,7 @@ C_PLUGINS :=					\
 	plugins/bcli				\
 	plugins/commando			\
 	plugins/fetchinvoice			\
+	plugins/invoice-pay			\
 	plugins/funder				\
 	plugins/topology			\
 	plugins/keysend				\
@@ -175,7 +181,7 @@ plugins/autoclean: $(PLUGIN_AUTOCLEAN_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_O
 
 plugins/chanbackup: $(PLUGIN_chanbackup_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) $(JSMN_OBJS)
 
-plugins/commando: $(PLUGIN_COMMANDO_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) $(JSMN_OBJS) 
+plugins/commando: $(PLUGIN_COMMANDO_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) $(JSMN_OBJS)
 
 # Topology wants to decode node_announcement, and peer_wiregen which
 # pulls in some of bitcoin/.
@@ -193,6 +199,8 @@ plugins/spenderp: bitcoin/block.o bitcoin/preimage.o bitcoin/psbt.o common/psbt_
 plugins/offers: $(PLUGIN_OFFERS_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) common/bolt12.o common/bolt12_merkle.o common/bolt11_json.o common/iso4217.o $(WIRE_OBJS) bitcoin/block.o common/channel_id.o bitcoin/preimage.o $(JSMN_OBJS)
 
 plugins/fetchinvoice: $(PLUGIN_FETCHINVOICE_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) common/bolt12.o common/bolt12_merkle.o common/iso4217.o $(WIRE_OBJS) bitcoin/block.o common/channel_id.o bitcoin/preimage.o $(JSMN_OBJS) common/gossmap.o common/fp16.o common/dijkstra.o common/route.o common/blindedpath.o common/hmac.o common/blinding.o
+
+plugins/invoice-pay: $(PLUGIN_INVOICE_PAYMENT_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) $(JSMN_OBJS)
 
 plugins/funder: bitcoin/psbt.o common/psbt_open.o $(PLUGIN_FUNDER_OBJS) $(PLUGIN_LIB_OBJS) $(PLUGIN_COMMON_OBJS) $(JSMN_OBJS)
 
