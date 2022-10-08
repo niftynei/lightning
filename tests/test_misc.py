@@ -1825,6 +1825,7 @@ def test_list_features_only(node_factory):
                 'option_static_remotekey/odd',
                 'option_payment_secret/even',
                 'option_basic_mpp/odd',
+                'option_support_large_channel/odd',
                 ]
     if EXPERIMENTAL_FEATURES:
         expected += ['option_anchor_outputs/odd']

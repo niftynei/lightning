@@ -1955,9 +1955,9 @@ def test_multifunding_wumbo(node_factory):
     Test wumbo channel imposition in multifundchannel.
     '''
     l1, l2, l3 = node_factory.get_nodes(3,
-                                        opts=[{'large-channels': None},
-                                              {'large-channels': None},
-                                              {}])
+                                        opts=[{},
+                                              {},
+                                              {'no-large-channels': None}])
 
     l1.fundwallet(1 << 26)
 

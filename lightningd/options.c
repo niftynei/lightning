@@ -967,12 +967,19 @@ static char *opt_set_msat(const char *arg, struct amount_msat *amt)
 	return NULL;
 }
 
-static char *opt_set_wumbo(struct lightningd *ld)
+static char *opt_set_wumbo(const char *arg UNUSED, struct lightningd *ld)
 {
+	/* FIXME: */
+	// maybe call opt_set_bool_arg?
 	feature_set_or(ld->our_features,
 		       take(feature_set_for_feature(NULL,
 						    OPTIONAL_FEATURE(OPT_LARGE_CHANNELS))));
 	return NULL;
+}
+
+static char *opt_set_wumbo_noarg(struct lightningd *ld)
+{
+	return opt_set_wumbo(NULL, ld);
 }
 
 static char *opt_set_websocket_port(const char *arg, struct lightningd *ld)
@@ -1067,9 +1074,15 @@ static void register_opts(struct lightningd *ld)
 			       "Location of the wallet database.");
 
 	/* This affects our features, so set early. */
-	opt_register_early_noarg("--large-channels|--wumbo",
-				 opt_set_wumbo, ld,
-				 "Allow channels larger than 0.16777215 BTC");
+	/* Deprecate this! */
+	if (deprecated_apis)
+		opt_register_early_noarg("--large-channels|--wumbo",
+				       opt_set_wumbo_noarg, ld,
+				       "Allow channels larger than 0.16777215 BTC. Defaults to true");
+	else
+		opt_register_early_arg("--large-channels|--wumbo",
+				       opt_set_wumbo, NULL, ld,
+				       "Allow channels larger than 0.16777215 BTC. Defaults to true");
 
 	opt_register_early_noarg("--experimental-dual-fund",
 				 opt_set_dual_fund, ld,
