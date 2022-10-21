@@ -1200,7 +1200,8 @@ wallet_commit_channel(struct lightningd *ld,
 		      const struct amount_sat lease_fee,
 		      secp256k1_ecdsa_signature *lease_commit_sig STEALS,
 		      const u32 lease_chan_max_msat,
-		      const u16 lease_chan_max_ppt)
+		      const u16 lease_chan_max_ppt,
+		      const struct channel_type *type)
 {
 	struct amount_msat our_msat, lease_fee_msat;
 	struct channel_inflight *inflight;
@@ -1258,7 +1259,9 @@ wallet_commit_channel(struct lightningd *ld,
 	channel->scb->funding = *funding;
 	channel->scb->cid = channel->cid;
 	channel->scb->funding_sats = total_funding;
-	channel->scb->type = channel_type_dup(channel->scb, channel->type);
+
+	channel->type = channel_type_dup(channel, type);
+	channel->scb->type = channel_type_dup(channel->scb, type);
 
 	if (our_upfront_shutdown_script)
 		channel->shutdown_scriptpubkey[LOCAL]
@@ -2917,6 +2920,7 @@ static void handle_commit_received(struct subd *dualopend,
 	struct openchannel2_psbt_payload *payload;
 	struct channel_inflight *inflight;
 	struct command *cmd = oa->cmd;
+	struct channel_type *channel_type;
 	secp256k1_ecdsa_signature *lease_commit_sig;
 
 	if (!fromwire_dualopend_commit_rcvd(tmpctx, msg,
@@ -2944,7 +2948,8 @@ static void handle_commit_received(struct subd *dualopend,
 					    &lease_fee,
 					    &lease_commit_sig,
 					    &lease_chan_max_msat,
-					    &lease_chan_max_ppt)) {
+					    &lease_chan_max_ppt,
+					    &channel_type)) {
 		channel_internal_error(channel,
 				       "Bad WIRE_DUALOPEND_COMMIT_RCVD: %s",
 				       tal_hex(msg, msg));
@@ -2978,7 +2983,8 @@ static void handle_commit_received(struct subd *dualopend,
 						       lease_fee,
 						       lease_commit_sig,
 						       lease_chan_max_msat,
-						       lease_chan_max_ppt))) {
+						       lease_chan_max_ppt,
+						       channel_type))) {
 			channel_internal_error(channel,
 					       "wallet_commit_channel failed"
 					       " (chan %s)",
@@ -3526,7 +3532,8 @@ bool peer_restart_dualopend(struct peer *peer,
 				      inflight->lease_chan_max_msat,
 				      inflight->lease_chan_max_ppt,
 				      /* FIXME: requested lease? */
-				      NULL);
+				      NULL,
+				      channel->type);
 
 	subd_send_msg(channel->owner, take(msg));
 	return true;
