@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [],
+  "additionalProperties": false,
+  "properties": {
+    "feerate": {
+      "type": "feerate",
+      "description": "Feerate for the upgrade transaction"
+    },
+    "reservedok": {
+      "type": "boolean",
+      "description": "Include already reserved funds or not"
+    }
+  }
+}

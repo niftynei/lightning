@@ -1513,3 +1513,42 @@ def test_withdraw_bech32m(node_factory, bitcoind):
     for addr in addrs:
         args += [{addr: 10**3}]
     l1.rpc.multiwithdraw(args)["txid"]
+
+
+def test_upgradewallet(node_factory, bitcoind):
+    l1 = node_factory.get_node()
+
+    # No funds in wallet, upgrading does nothing
+    upgrade = l1.rpc.upgradewallet()
+    assert upgrade['upgraded_outs'] == 0
+
+    l1.fundwallet(10000000, addrtype="bech32")
+
+    # Funds are in wallet but they're already native segwit
+    upgrade = l1.rpc.upgradewallet()
+    assert upgrade['upgraded_outs'] == 0
+
+    l1.fundwallet(20000000, addrtype="p2sh-segwit")
+    upgrade = l1.rpc.upgradewallet()
+    assert upgrade['upgraded_outs'] == 1
+    assert bitcoind.rpc.getmempoolinfo()['size'] == 1
+
+    # Should be reserved!
+    res_funds = only_one([out for out in l1.rpc.listfunds()['outputs'] if out['reserved']])
+    assert 'redeemscript' in res_funds
+
+    # Running it again should be no-op because reservedok is false
+    upgrade = l1.rpc.upgradewallet()
+    assert upgrade['upgraded_outs'] == 0
+
+    # Doing it with 'reserved ok' should have 1
+    # We use a big feerate so we can get over the RBF hump
+    upgrade = l1.rpc.upgradewallet(feerate="max_acceptable", reservedok=True)
+    assert upgrade['upgraded_outs'] == 1
+    assert bitcoind.rpc.getmempoolinfo()['size'] == 1
+
+    # Mine it, nothing to upgrade
+    l1.bitcoin.generate_block(1)
+    sync_blockheight(l1.bitcoin, [l1])
+    upgrade = l1.rpc.upgradewallet(feerate="max_acceptable", reservedok=True)
+    assert upgrade['upgraded_outs'] == 0
