@@ -74,6 +74,7 @@ tests/primitives_pb2_grpc.py
 # Rust targets
 target
 plugins/cln-grpc
+plugins/hodlinv
 
 # Build directories
 bionic/

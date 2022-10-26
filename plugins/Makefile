@@ -105,7 +105,10 @@ ifneq ($(RUST),0)
 plugins/cln-grpc: target/${RUST_PROFILE}/cln-grpc
 	@cp $< $@
 
-PLUGINS += plugins/cln-grpc
+plugins/hodlinv: target/${RUST_PROFILE}/hodlinvoice
+	@cp $< $@
+
+PLUGINS += plugins/cln-grpc plugins/hodlinv
 endif
 
 PLUGIN_COMMON_OBJS :=				\
@@ -210,8 +213,11 @@ ${CLN_PLUGIN_EXAMPLES}: ${CLN_PLUGIN_SRC}
 target/${RUST_PROFILE}/cln-grpc: ${CLN_PLUGIN_SRC}
 	cargo build ${CARGO_OPTS} --bin cln-grpc
 
+target/${RUST_PROFILE}/hodlinvoice: ${CLN_PLUGIN_SRC}
+	cargo build ${CARGO_OPTS} --bin hodlinvoice
+
 ifneq ($(RUST),0)
-DEFAULT_TARGETS += $(CLN_PLUGIN_EXAMPLES) plugins/cln-grpc
+DEFAULT_TARGETS += $(CLN_PLUGIN_EXAMPLES) plugins/cln-grpc plugins/hodlinv
 endif
 
 include plugins/test/Makefile
