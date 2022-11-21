@@ -859,7 +859,7 @@ class LightningNode(object):
 
         return {'address': addr, 'wallettxid': wallettxid, 'fundingtx': res['tx']}
 
-    def fundwallet(self, sats, addrtype="p2sh-segwit", mine_block=True):
+    def fundwallet(self, sats, addrtype="bech32", mine_block=True):
         addr = self.rpc.newaddr(addrtype)[addrtype]
         txid = self.bitcoin.rpc.sendtoaddress(addr, sats / 10**8)
         if mine_block:
