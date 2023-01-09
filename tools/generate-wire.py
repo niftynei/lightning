@@ -90,7 +90,7 @@ class Field(object):
         return bool(self.extension_names)
 
     def size(self, implicit_expression=None):
-        if self.count:
+        if type(self.count) == int:
             return self.count
         if self.len_field:
             return self.len_field

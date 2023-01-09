@@ -155,3 +155,6 @@ tlvtype,test_n3,tlv5,5
 tlvdata,test_n3,tlv5,singleton_varlen_arr,subtype_var_len,...
 tlvtype,test_n3,tlv6,6
 tlvdata,test_n3,tlv6,singleton_varlen_assign,subtype_var_assign,
+# an 'empty' type (flag-like)
+tlvtype,test_n3,tlv7,7
+tlvdata,test_n3,tlv7,empty,byte,0
