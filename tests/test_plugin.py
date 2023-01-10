@@ -651,6 +651,7 @@ def test_openchannel_hook(node_factory, bitcoind):
         'max_accepted_htlcs': '483',
         'max_htlc_value_in_flight_msat': 18446744073709551615,
         'to_self_delay': '5',
+        'require_confirmed_inputs': False,
     }
 
     if l2.config('experimental-dual-fund'):
