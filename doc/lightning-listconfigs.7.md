@@ -102,6 +102,7 @@ On success, an object is returned, containing:
 - **tor-service-password** (string, optional): `tor-service-password` field from config or cmdline, if any
 - **dev-allowdustreserve** (boolean, optional): Whether we allow setting dust reserves
 - **announce-addr-dns** (boolean, optional): Whether we put DNS entries into node\_announcement *(added v22.11.1)*
+- **require-confirmed-inputs** (boolean, optional): Request peers to only send confirmed inputs (dual-fund only)
 
 [comment]: # (GENERATE-FROM-SCHEMA-END)
 
@@ -220,4 +221,4 @@ RESOURCES
 
 Main web site: <https://github.com/ElementsProject/lightning>
 
-[comment]: # ( SHA256STAMP:bc7c3374ba6609553f431deae62c1e5525e136086b39fffb6c674a58365c0740)
+[comment]: # ( SHA256STAMP:7bed1b0ee5ccad6addc860e39dd1afd3eeb9c7bdb8660b2e2758bdb48d26aa92)
