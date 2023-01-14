@@ -207,6 +207,9 @@ struct state {
 	/* Were we reconnected at start ? */
 	bool reconnected;
 
+	/* Did we send tx-abort? */
+	const char *aborted_err;
+
 	/* State of inflight funding transaction attempt */
 	struct tx_state *tx_state;
 
@@ -322,8 +325,7 @@ static void negotiation_aborted(struct state *state, const char *why)
 {
 	status_debug("aborted opening negotiation: %s", why);
 
-	/* Tell master that funding failed. Issue a "warning",
-	 * so we'll reconnect */
+	/* Tell master that funding failed. */
 	peer_failed_received_errmsg(state->pps, why,
 				    &state->channel_id, true);
 }
@@ -336,7 +338,7 @@ static void open_abort(struct state *state,
 {
 	va_list ap;
 	const char *errmsg;
-	u8 *msg, *mmsg;
+	u8 *msg;
 
 	va_start(ap, fmt);
 	errmsg = tal_vfmt(NULL, fmt, ap);
@@ -354,11 +356,14 @@ static void open_abort(struct state *state,
 	msg = towire_tx_abort(NULL, &state->channel_id,
 			      (u8 *)tal_dup_arr(errmsg, char, errmsg,
 					  strlen(errmsg), 0));
-	mmsg = towire_status_peer_error(NULL, &state->channel_id,
-					errmsg, true, msg);
 	peer_write(state->pps, take(msg));
-	peer_fatal_continue(take(mmsg), state->pps);
-	tal_free(errmsg);
+
+	/* We're now in aborted mode, all
+	 * subsequent msgs will be dropped */
+	if (!state->aborted_err)
+		state->aborted_err = tal_steal(state, errmsg);
+	else
+		tal_free(errmsg);
 }
 
 static void open_err_warn(struct state *state,
@@ -1165,7 +1170,7 @@ static void init_changeset(struct tx_state *tx_state, struct wally_psbt *psbt)
 
 static void handle_tx_abort(struct state *state, u8 *msg)
 {
-	char *desc;
+	const char *desc;
 
 	/* If they sent this after tx-sigs, it's a
 	 * protocol error */
@@ -1173,8 +1178,22 @@ static void handle_tx_abort(struct state *state, u8 *msg)
 		open_err_fatal(state, "tx-abort rcvd after"
 			       " tx-sigs");
 
-	desc = sanitize_error(tmpctx, msg, NULL);
-	negotiation_aborted(state, tal_fmt(tmpctx, "They sent %s", desc));
+	/*
+	 * BOLT-07cc0edc791aff78398a48fc31ee23b45374d8d9 #2:
+	 *
+	 * Echoing back `tx_abort` allows the peer to ack
+	 * that they've seen the abort message, permitting
+	 * the originating peer to terminate the in-flight
+	 * process without worrying about stale messages.
+	 */
+	if (!state->aborted_err) {
+		open_abort(state, "%s", "Rcvd tx-abort");
+		desc = tal_fmt(tmpctx, "They sent %s",
+			       sanitize_error(tmpctx, msg, NULL));
+	} else
+		desc = state->aborted_err;
+
+	negotiation_aborted(state, desc);
 }
 
 static u8 *handle_channel_ready(struct state *state, u8 *msg)
@@ -1285,10 +1304,18 @@ static u8 *opening_negotiate_msg(const tal_t *ctx, struct state *state)
 		 * it's possible we can get some different messages in
 		 * the meantime! */
 		t = fromwire_peektype(msg);
+		if (state->aborted_err && t != WIRE_TX_ABORT) {
+			status_debug("Rcvd %s but already"
+				     " sent TX_ABORT,"
+				     " dropping",
+				     peer_wire_name(t));
+			continue;
+		}
 		switch (t) {
 		case WIRE_TX_SIGNATURES:
 			/* We can get these when we restart and immediately
 			 * startup an RBF */
+
 			handle_tx_sigs(state, msg);
 			continue;
 		case WIRE_CHANNEL_READY:
@@ -3841,6 +3868,14 @@ static u8 *handle_peer_in(struct state *state)
 	enum peer_wire t = fromwire_peektype(msg);
 	struct channel_id channel_id;
 
+	if (state->aborted_err && t != WIRE_TX_ABORT) {
+		status_debug("Rcvd %s but already"
+			     " sent TX_ABORT,"
+			     " dropping",
+			     peer_wire_name(t));
+		return NULL;
+	}
+
 	switch (t) {
 	case WIRE_OPEN_CHANNEL2:
 		if (state->channel) {
@@ -3948,6 +3983,9 @@ int main(int argc, char *argv[])
 	/*~ This makes status_failed, status_debug etc work synchronously by
 	 * writing to REQ_FD */
 	status_setup_sync(REQ_FD);
+
+	/* Init state to not aborted */
+	state->aborted_err = NULL;
 
 	/*~ The very first thing we read from lightningd is our init msg */
 	msg = wire_sync_read(tmpctx, REQ_FD);
