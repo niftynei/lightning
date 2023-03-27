@@ -1350,7 +1350,7 @@ static struct command_result *param_command(struct command *cmd,
 			    tok->end - tok->start, buffer + tok->start);
 }
 
-struct jsonrpc_notification *jsonrpc_notification_start(const tal_t *ctx, const char *method)
+static struct jsonrpc_notification *jsonrpc_notification_init(const tal_t *ctx, const char *method)
 {
 	struct jsonrpc_notification *n = tal(ctx, struct jsonrpc_notification);
 	n->method = tal_strdup(n, method);
@@ -1358,7 +1358,25 @@ struct jsonrpc_notification *jsonrpc_notification_start(const tal_t *ctx, const 
 	json_object_start(n->stream, NULL);
 	json_add_string(n->stream, "jsonrpc", "2.0");
 	json_add_string(n->stream, "method", method);
+	return n;
+}
+
+
+struct jsonrpc_notification *jsonrpc_notification_start(const tal_t *ctx, const char *method)
+{
+	struct jsonrpc_notification *n = jsonrpc_notification_init(ctx, method);
 	json_object_start(n->stream, "params");
+
+	return n;
+}
+
+struct jsonrpc_notification *jsonrpc_notification_w_params(const tal_t *ctx,
+							   const char *method,
+							   const jsmntok_t *paramstok,
+							   const char *params_buffer)
+{
+	struct jsonrpc_notification *n = jsonrpc_notification_init(ctx, method);
+	json_add_tok(n->stream, "params", paramstok, params_buffer);
 
 	return n;
 }

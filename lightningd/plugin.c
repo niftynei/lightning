@@ -490,6 +490,7 @@ static const char *plugin_notification_handle(struct plugin *plugin,
 	const jsmntok_t *methtok, *paramstok;
 	const char *methname;
 	struct jsonrpc_notification *n;
+	bool is_sendable_native;
 	methtok = json_get_member(plugin->buffer, toks, "method");
 	paramstok = json_get_member(plugin->buffer, toks, "params");
 
@@ -514,7 +515,8 @@ static const char *plugin_notification_handle(struct plugin *plugin,
 
 	methname = json_strdup(tmpctx, plugin->buffer, methtok);
 
-	if (!plugin_notification_allowed(plugin, methname)) {
+	is_sendable_native = notifications_allow_plugin_send(methname);
+	if (!plugin_notification_allowed(plugin, methname) && !is_sendable_native) {
 		log_unusual(plugin->log,
 			    "Plugin attempted to send a notification to topic "
 			    "\"%s\" it hasn't declared in its manifest, not "
@@ -1428,12 +1430,20 @@ static const char *plugin_notifications_add(const char *buffer,
 
 		name = json_strdup(plugin, buffer, method);
 
-		if (notifications_topic_is_native(name))
+		if (notifications_topic_is_native(name)) {
+			/* If there's a topic we allow plugins to send, we've
+			 * already registered it... */
+			if (notifications_allow_plugin_send(name)) {
+				tal_free(name);
+				return NULL;
+			}
+
 			return tal_fmt(plugin,
 				       "plugin attempted to register a native "
 				       "notification topic \"%s\", these may "
 				       "however only be sent by lightningd",
 				       name);
+		}
 
 		tal_arr_expand(&plugin->notification_topics, name);
 	}

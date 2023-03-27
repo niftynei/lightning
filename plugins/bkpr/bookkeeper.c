@@ -1693,7 +1693,19 @@ static struct command_result *json_coin_moved(struct command *cmd,
 	u32 version;
 	u64 timestamp;
 	struct amount_msat credit, debit;
+	const jsmntok_t *payload, *origin;
 	enum mvt_tag *tags;
+
+	/* params might be buried in "payload" */
+	payload = json_get_member(buf, params, "payload");
+	if (payload) {
+		origin = json_get_member(buf, params, "origin");
+		assert(origin);
+		params = payload;
+		plugin_log(cmd->plugin, LOG_DBG,
+			   "received forwarded params from %s",
+			   json_strdup(tmpctx, buf, origin));
+	}
 
 	err = json_scan(tmpctx, buf, params,
 			"{coin_movement:"

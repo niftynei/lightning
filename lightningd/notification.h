@@ -16,8 +16,13 @@ bool notifications_have_topic(const struct plugins *plugins, const char *topic);
  * lightningd itself? */
 bool notifications_topic_is_native(const char *topic);
 
+/* Are plugins allowed to send notifications of this type?
+ * Ex: coin_movements for the bookkeeper */
+bool notifications_allow_plugin_send(const char *topic);
+
 struct notification {
 	const char *topic;
+	bool allow_plugin_send;
 	/* the serialization interface */
 	void *serialize;
 };
@@ -25,9 +30,10 @@ struct notification {
 AUTODATA_TYPE(notifications, struct notification);
 
 /* FIXME: Find a way to avoid back-to-back declaration and definition */
-#define REGISTER_NOTIFICATION(topic, serialize)                                  \
+#define REGISTER_NOTIFICATION(topic, allow_plugin_send, serialize)               \
 	struct notification topic##_notification_gen = {                         \
 		stringify(topic),                                                \
+		allow_plugin_send,						 \
 		serialize,                                                       \
 	};                                                                       \
 	AUTODATA(notifications, &topic##_notification_gen);

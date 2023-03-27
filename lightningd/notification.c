@@ -18,6 +18,12 @@ static struct notification *find_notification_by_topic(const char* topic)
 	return NULL;
 }
 
+bool notifications_allow_plugin_send(const char *topic)
+{
+	struct notification *noti = find_notification_by_topic(topic);
+	return noti != NULL && noti->allow_plugin_send;
+}
+
 bool notifications_topic_is_native(const char *topic)
 {
 	struct notification *noti = find_notification_by_topic(topic);
@@ -51,7 +57,7 @@ static void connect_notification_serialize(struct json_stream *stream,
 	json_add_address_internal(stream, "address", addr);
 }
 
-REGISTER_NOTIFICATION(connect,
+REGISTER_NOTIFICATION(connect, false,
 		      connect_notification_serialize);
 
 void notify_connect(struct lightningd *ld,
@@ -77,7 +83,7 @@ static void disconnect_notification_serialize(struct json_stream *stream,
 	json_add_node_id(stream, "id", nodeid);
 }
 
-REGISTER_NOTIFICATION(disconnect,
+REGISTER_NOTIFICATION(disconnect, false,
 		      disconnect_notification_serialize);
 
 void notify_disconnect(struct lightningd *ld, struct node_id *nodeid)
@@ -115,7 +121,7 @@ static void warning_notification_serialize(struct json_stream *stream,
 	json_object_end(stream); /* .warning */
 }
 
-REGISTER_NOTIFICATION(warning,
+REGISTER_NOTIFICATION(warning, false,
 		      warning_notification_serialize);
 
 void notify_warning(struct lightningd *ld, struct log_entry *l)
@@ -143,7 +149,7 @@ static void invoice_payment_notification_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(invoice_payment,
+REGISTER_NOTIFICATION(invoice_payment, false,
 		      invoice_payment_notification_serialize)
 
 void notify_invoice_payment(struct lightningd *ld, struct amount_msat amount,
@@ -177,7 +183,7 @@ static void invoice_creation_notification_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(invoice_creation,
+REGISTER_NOTIFICATION(invoice_creation, false,
 		      invoice_creation_notification_serialize)
 
 void notify_invoice_creation(struct lightningd *ld, struct amount_msat *amount,
@@ -213,7 +219,7 @@ static void channel_opened_notification_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(channel_opened,
+REGISTER_NOTIFICATION(channel_opened, false,
 		      channel_opened_notification_serialize)
 
 void notify_channel_opened(struct lightningd *ld, struct node_id *node_id,
@@ -262,7 +268,7 @@ static void channel_state_changed_notification_serialize(struct json_stream *str
 }
 
 
-REGISTER_NOTIFICATION(channel_state_changed,
+REGISTER_NOTIFICATION(channel_state_changed, false,
 		      channel_state_changed_notification_serialize)
 
 void notify_channel_state_changed(struct lightningd *ld,
@@ -340,7 +346,7 @@ static void forward_event_notification_serialize(struct json_stream *stream,
 				   cur, &in->payment_hash);
 }
 
-REGISTER_NOTIFICATION(forward_event,
+REGISTER_NOTIFICATION(forward_event, false,
 		      forward_event_notification_serialize);
 
 void notify_forward_event(struct lightningd *ld,
@@ -376,7 +382,7 @@ static void sendpay_success_notification_serialize(struct json_stream *stream,
 	json_object_end(stream); /* .sendpay_success */
 }
 
-REGISTER_NOTIFICATION(sendpay_success,
+REGISTER_NOTIFICATION(sendpay_success, false,
 		      sendpay_success_notification_serialize);
 
 void notify_sendpay_success(struct lightningd *ld,
@@ -417,7 +423,7 @@ static void sendpay_failure_notification_serialize(struct json_stream *stream,
 	json_object_end(stream); /* .sendpay_failure */
 }
 
-REGISTER_NOTIFICATION(sendpay_failure,
+REGISTER_NOTIFICATION(sendpay_failure, false,
 		      sendpay_failure_notification_serialize);
 
 void notify_sendpay_failure(struct lightningd *ld,
@@ -519,7 +525,7 @@ static void coin_movement_notification_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(coin_movement,
+REGISTER_NOTIFICATION(coin_movement, true,
 		      coin_movement_notification_serialize);
 
 void notify_coin_mvt(struct lightningd *ld,
@@ -556,7 +562,7 @@ static void balance_snapshot_notification_serialize(struct json_stream *stream, 
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(balance_snapshot,
+REGISTER_NOTIFICATION(balance_snapshot, false,
 		      balance_snapshot_notification_serialize);
 
 void notify_balance_snapshot(struct lightningd *ld,
@@ -582,7 +588,7 @@ static void block_added_notification_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(block_added,
+REGISTER_NOTIFICATION(block_added, false,
 		      block_added_notification_serialize);
 
 void notify_block_added(struct lightningd *ld,
@@ -608,7 +614,7 @@ static void openchannel_peer_sigs_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(openchannel_peer_sigs,
+REGISTER_NOTIFICATION(openchannel_peer_sigs, false,
 		      openchannel_peer_sigs_serialize);
 
 void notify_openchannel_peer_sigs(struct lightningd *ld,
@@ -634,7 +640,7 @@ static void channel_open_failed_serialize(struct json_stream *stream,
 	json_object_end(stream);
 }
 
-REGISTER_NOTIFICATION(channel_open_failed,
+REGISTER_NOTIFICATION(channel_open_failed, false,
 		      channel_open_failed_serialize);
 
 void notify_channel_open_failed(struct lightningd *ld,
@@ -650,7 +656,7 @@ void notify_channel_open_failed(struct lightningd *ld,
 	plugins_notify(ld->plugins, take(n));
 }
 
-REGISTER_NOTIFICATION(shutdown, NULL);
+REGISTER_NOTIFICATION(shutdown, false, NULL);
 
 bool notify_plugin_shutdown(struct lightningd *ld, struct plugin *p)
 {

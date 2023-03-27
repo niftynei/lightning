@@ -218,6 +218,16 @@ bool jsonrpc_command_add(struct jsonrpc *rpc, struct json_command *command,
  */
 struct jsonrpc_notification *jsonrpc_notification_start(const tal_t *ctx, const char *topic);
 
+
+/**
+ * Begin a JSON-RPC notification with the provided params filled in.
+ *
+ * Adds the provided params to a notification.
+ */
+struct jsonrpc_notification *jsonrpc_notification_w_params(const tal_t *ctx,
+							   const char *method,
+							   const jsmntok_t *paramstok,
+							   const char *params_buffer);
 /**
  * Counterpart to jsonrpc_notification_start.
  */

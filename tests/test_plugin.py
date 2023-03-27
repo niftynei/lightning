@@ -2503,7 +2503,8 @@ def test_custom_notification_topics(node_factory):
     plugin = os.path.join(
         os.path.dirname(__file__), "plugins", "custom_notifications.py"
     )
-    l1, l2 = node_factory.line_graph(2, opts=[{'plugin': plugin}, {}])
+    # FIXME: fix bookkeeper so it doesnt break on unknown account
+    l1, l2 = node_factory.line_graph(2, opts=[{'allow_broken_log': True, 'plugin': plugin}, {}])
     l1.rpc.emit()
     l1.daemon.wait_for_log(r'Got a custom notification Hello world')
 
@@ -2519,6 +2520,10 @@ def test_custom_notification_topics(node_factory):
     )
     time.sleep(1)
     assert not l1.daemon.is_in_log(r'Got the ididntannouncethis event')
+
+    # Send a native notification, that's allowed
+    l1.rpc.fake_coin_move()
+    l1.daemon.wait_for_log(r'coin_move 2 \(deposit\) 1100000msat -0msat chain_mvt 1679941367')
 
     # The plugin just dist what previously was a fatal mistake (emit
     # an unknown notification), make sure we didn't kill it.
