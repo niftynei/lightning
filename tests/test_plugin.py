@@ -2504,7 +2504,7 @@ def test_custom_notification_topics(node_factory):
         os.path.dirname(__file__), "plugins", "custom_notifications.py"
     )
     # FIXME: fix bookkeeper so it doesnt break on unknown account
-    l1, l2 = node_factory.line_graph(2, opts=[{'allow_broken_log': True, 'plugin': plugin}, {}])
+    l1, l2 = node_factory.line_graph(2, opts=[{'plugin': plugin}, {}])
     l1.rpc.emit()
     l1.daemon.wait_for_log(r'Got a custom notification Hello world')
 

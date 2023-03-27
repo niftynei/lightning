@@ -1368,6 +1368,7 @@ static struct command_result *
 parse_and_log_chain_move(struct command *cmd,
 			 const char *buf,
 			 const jsmntok_t *params,
+			 bool external_acct,
 			 const char *acct_name STEALS,
 			 const struct amount_msat credit,
 			 const struct amount_msat debit,
@@ -1534,40 +1535,43 @@ parse_and_log_chain_move(struct command *cmd,
 		db_commit_transaction(db);
 	}
 
-	/* If this is a channel account event, it's possible
-	 * that we *never* got the open event. (This happens
-	 * if you add the plugin *after* you've closed the channel) */
-	if ((!acct->open_event_db_id && is_channel_account(acct))
-	    || (orig_acct && is_channel_account(orig_acct)
-		&& !orig_acct->open_event_db_id)) {
-		/* Find the channel open info for this peer */
-		struct out_req *req;
-		struct event_info *info;
+	/* External wallet tracking doesn't impact channel accounts */
+	if (!external_acct) {
+		/* If this is a channel account event, it's possible
+		 * that we *never* got the open event. (This happens
+		 * if you add the plugin *after* you've closed the channel) */
+		if ((!acct->open_event_db_id && is_channel_account(acct))
+		    || (orig_acct && is_channel_account(orig_acct)
+			&& !orig_acct->open_event_db_id)) {
+			/* Find the channel open info for this peer */
+			struct out_req *req;
+			struct event_info *info;
 
-		plugin_log(cmd->plugin, LOG_DBG,
-			   "channel event received but no open for channel %s."
-			   " Calling `listpeerchannls` to fetch missing info",
-			   acct->name);
+			plugin_log(cmd->plugin, LOG_DBG,
+				   "channel event received but no open for channel %s."
+				   " Calling `listpeerchannls` to fetch missing info",
+				   acct->name);
 
-		info = tal(cmd, struct event_info);
-		info->ev = tal_steal(info, e);
-		info->acct = tal_steal(info,
-				       is_channel_account(acct) ?
-				       acct : orig_acct);
+			info = tal(cmd, struct event_info);
+			info->ev = tal_steal(info, e);
+			info->acct = tal_steal(info,
+					       is_channel_account(acct) ?
+					       acct : orig_acct);
 
-		req = jsonrpc_request_start(cmd->plugin, cmd,
-					    "listpeerchannels",
-					    listpeerchannels_done,
-					    log_error,
-					    info);
-		/* FIXME: use the peer_id to reduce work here */
-		return send_outreq(cmd->plugin, req);
+			req = jsonrpc_request_start(cmd->plugin, cmd,
+						    "listpeerchannels",
+						    listpeerchannels_done,
+						    log_error,
+						    info);
+			/* FIXME: use the peer_id to reduce work here */
+			return send_outreq(cmd->plugin, req);
+		}
+
+		/* Maybe mark acct as onchain resolved */
+		err = do_account_close_checks(cmd, e, acct);
+		if (err)
+			plugin_err(cmd->plugin, err);
 	}
-
-	/* Maybe mark acct as onchain resolved */
-	err = do_account_close_checks(cmd, e, acct);
-	if (err)
-		plugin_err(cmd->plugin, err);
 
 	/* Check for invoice desc data, necessary */
 	if (e->payment_id) {
@@ -1695,17 +1699,20 @@ static struct command_result *json_coin_moved(struct command *cmd,
 	struct amount_msat credit, debit;
 	const jsmntok_t *payload, *origin;
 	enum mvt_tag *tags;
+	bool custom_notif;
 
 	/* params might be buried in "payload" */
 	payload = json_get_member(buf, params, "payload");
 	if (payload) {
+		custom_notif = true;
 		origin = json_get_member(buf, params, "origin");
 		assert(origin);
 		params = payload;
 		plugin_log(cmd->plugin, LOG_DBG,
 			   "received forwarded params from %s",
 			   json_strdup(tmpctx, buf, origin));
-	}
+	} else
+		custom_notif = false;
 
 	err = json_scan(tmpctx, buf, params,
 			"{coin_movement:"
@@ -1752,11 +1759,15 @@ static struct command_result *json_coin_moved(struct command *cmd,
 
 	if (streq(mvt_type, CHAIN_MOVE))
 		return parse_and_log_chain_move(cmd, buf, params,
-					        acct_name, credit, debit,
+						custom_notif,
+					        acct_name,
+						credit, debit,
 					        coin_type, timestamp, tags,
 						NULL);
 
 
+	/* We don't let external sources tell us about in-channel moves */
+	assert (!custom_notif);
 	assert(streq(mvt_type, CHANNEL_MOVE));
 	return parse_and_log_channel_move(cmd, buf, params,
 					  acct_name, credit, debit,
