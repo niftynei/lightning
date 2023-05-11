@@ -699,9 +699,9 @@ static void check_mutual_splice_locked(struct peer *peer)
 
 	inflight = NULL;
 	for (size_t i = 0; i < tal_count(peer->splice_state.inflights); i++)
-		if (bitcoin_txid_eq(&peer->splice_state.inflights[i].outpoint.txid,
+		if (bitcoin_txid_eq(&peer->splice_state.inflights[i]->outpoint.txid,
 			&peer->splice_state.locked_txid))
-			inflight = &peer->splice_state.inflights[i];
+			inflight = peer->splice_state.inflights[i];
 
 	if (!inflight)
 		peer_failed_warn(peer->pps, &peer->channel_id,
@@ -1606,18 +1606,18 @@ static void send_commit(struct peer *peer)
 	 *     feerate order.
 	 */
 	for (u32 i = 0; i < tal_count(peer->splice_state.inflights); i++) {
-		s64 funding_diff = (s64)peer->splice_state.inflights[i].amnt.satoshis
+		s64 funding_diff = (s64)peer->splice_state.inflights[i]->amnt.satoshis
 					- peer->channel->funding_sats.satoshis;
 		s64 remote_splice_amnt = funding_diff
-					- peer->splice_state.inflights[i].splice_amnt;
+					- peer->splice_state.inflights[i]->splice_amnt;
 
 		tal_arr_expand(&msgs,
 			       send_commit_part(peer,
-			       			&peer->splice_state.inflights[i].outpoint,
-				 		peer->splice_state.inflights[i].amnt,
-				 		changed_htlcs, false,
-				 		peer->splice_state.inflights[i].splice_amnt,
-				 		remote_splice_amnt));
+						&peer->splice_state.inflights[i]->outpoint,
+						peer->splice_state.inflights[i]->amnt,
+						changed_htlcs, false,
+						peer->splice_state.inflights[i]->splice_amnt,
+						remote_splice_amnt));
 	}
 
 	peer->next_index[REMOTE]++;
@@ -1913,8 +1913,8 @@ static struct commitsig *handle_peer_commit_sig(struct peer *peer,
 			       channel_has(peer->channel, OPT_ANCHOR_OUTPUTS));
 
 	if (commit_index) {
-		outpoint = peer->splice_state.inflights[commit_index - 1].outpoint;
-		funding_sats = peer->splice_state.inflights[commit_index - 1].amnt;
+		outpoint = peer->splice_state.inflights[commit_index - 1]->outpoint;
+		funding_sats = peer->splice_state.inflights[commit_index - 1]->amnt;
 	}
 	else {
 		outpoint = peer->channel->funding;
@@ -2067,9 +2067,9 @@ static struct commitsig *handle_peer_commit_sig(struct peer *peer,
 	 * inflight splices. Since consequtive is requred, we recurse for
 	 * each expected message, blocking until all are received. */
 	for (i = 0; i < tal_count(peer->splice_state.inflights); i++) {
-		s64 funding_diff = (s64)peer->splice_state.inflights[i].amnt.satoshis
+		s64 funding_diff = (s64)peer->splice_state.inflights[i]->amnt.satoshis
 					- peer->channel->funding_sats.satoshis;
-		s64 splice_amnt = peer->splice_state.inflights[i].splice_amnt;
+		s64 splice_amnt = peer->splice_state.inflights[i]->splice_amnt;
 
 		splice_msg = peer_read(tmpctx, peer->pps);
 		/* Check type for cleaner failure message */
@@ -3061,13 +3061,13 @@ static int find_channel_funding_input(struct wally_psbt *psbt,
 
 static void update_view_from_inflights(struct peer *peer)
 {
-	struct inflight *inflights = peer->splice_state.inflights;
+	struct inflight **inflights = peer->splice_state.inflights;
 	s64 orig_sats = peer->channel->funding_sats.satoshis;
 
 	for (size_t i = 0; i < tal_count(inflights); i++) {
-		s64 splice_amnt = inflights[i].amnt.satoshis;
+		s64 splice_amnt = inflights[i]->amnt.satoshis;
 		s64 funding_diff = splice_amnt - orig_sats;
-		s64 remote_splice_amnt = funding_diff - inflights[i].splice_amnt;
+		s64 remote_splice_amnt = funding_diff - inflights[i]->splice_amnt;
 
 		if (splice_amnt < peer->channel->view[LOCAL].lowest_splice_amnt[LOCAL])
 			peer->channel->view[LOCAL].lowest_splice_amnt[LOCAL] = splice_amnt;
@@ -3327,14 +3327,13 @@ static void resume_splice_negotiation(struct peer *peer,
 static struct inflight *append_inflight(struct peer *peer)
 {
 	if (!peer->splice_state.inflights)
-		peer->splice_state.inflights = tal_arr(peer, struct inflight, 0);
+		peer->splice_state.inflights = tal_arr(peer, struct inflight *, 0);
 
 	size_t len = tal_count(peer->splice_state.inflights);
 
-
 	tal_resize(&peer->splice_state.inflights, len + 1);
 
-	return &peer->splice_state.inflights[len];
+	return peer->splice_state.inflights[len];
 }
 
 /* ACCEPTER side of the splice. Here we handle all the accepter's steps for the
@@ -3828,7 +3827,7 @@ static struct inflight *last_inflight(struct peer *peer)
 	size_t count = tal_count(peer->splice_state.inflights);
 
 	if (count)
-		return &peer->splice_state.inflights[count - 1];
+		return peer->splice_state.inflights[count - 1];
 
 	return NULL;
 }
