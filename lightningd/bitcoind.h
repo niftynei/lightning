@@ -54,6 +54,21 @@ struct filteredblock {
 	struct filteredblock_outpoint **outpoints;
 };
 
+/* A struct for the output data of a tx */
+struct tx_output {
+	u8 *script;
+	struct amount_sat amount;
+};
+
+/* A struct containing just a shell of tx data from the mempool */
+struct mempool_tx {
+	u64 updated_index;
+    struct bitcoin_txid txid;
+	struct bitcoin_outpoint **inputs;
+	struct tx_output **outputs;
+};
+
+
 struct bitcoind *new_bitcoind(const tal_t *ctx,
 			      struct lightningd *ld,
 			      struct logger *log);
@@ -143,6 +158,22 @@ void bitcoind_getutxout_(struct bitcoind *bitcoind,
 					        struct bitcoind *,	\
 					        struct bitcoin_tx_output *),\
 			    (arg))
+
+void bitcoind_listmempooltransactions_(struct bitcoind *bitcoind,
+				       const u64 update_index,
+				       void (*cb)(struct bitcoind *bitcoind,
+						  u64 next_updated_index,
+						  const struct mempool_tx *txs,
+						  void *),
+				       void *cb_arg);
+#define bitcoind_listmempooltransactions(bitcoind_, update_index_, cb, arg)  \
+    bitcoind_listmempooltransactions_((bitcoind_), (update_index_),          \
+                        typesafe_cb_preargs(void, void *,		            \
+                                    (cb), (arg),		                    \
+                                    struct bitcoind *,	                    \
+                                    u64 next_updated_index,	                \
+                                    const struct mempool_tx *),             \
+                        (arg))
 
 void bitcoind_getclientversion(struct bitcoind *bitcoind);
 

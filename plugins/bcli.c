@@ -455,6 +455,106 @@ static struct command_result *process_getblockchaininfo(struct bitcoin_cli *bcli
 	return command_finished(bcli->cmd, response);
 }
 
+static bool json_to_tok(const char *buffer, const jsmntok_t *tok,
+			const jsmntok_t **tokp)
+{
+	*tokp = tok;
+	return true;
+}
+
+static struct command_result *process_listmempooltxs(struct bitcoin_cli *bcli)
+{
+	const jsmntok_t *tokens;
+	const jsmntok_t *txs_tok, *tx_tok, *vin_toks, *vout_toks, *vin_tok, *vout_tok;
+	struct json_stream *response;
+	struct bitcoin_tx_output output;
+	u64 mempoolseq;
+	const char *err;
+	size_t i, j;
+
+
+	tokens = json_parse_simple(bcli->output,
+				   bcli->output, bcli->output_bytes);
+	if (!tokens) {
+		return command_err_bcli_badjson(bcli, "cannot parse");
+	}
+
+	err = json_scan(tmpctx, bcli->output, tokens,
+			"{mempool_sequence:%,txs:%}",
+			JSON_SCAN(json_to_u64, &mempoolseq),
+			JSON_SCAN(json_to_tok, &txs_tok));
+
+	if (err)
+		return command_err_bcli_badjson(bcli, err);
+
+	response = jsonrpc_stream_success(bcli->cmd);
+	json_add_u64(response, "update_index", mempoolseq);
+	json_array_start(response, "txs");
+	json_for_each_arr(i, tx_tok, txs_tok) {
+		u64 entryseq;
+		struct bitcoin_txid txid;
+
+		err = json_scan(tmpctx, bcli->output, tx_tok,
+				"{"
+				"entry_sequence:%"
+				",txid:%"
+				",vin:%"
+				",vout:%"
+				"}",
+				JSON_SCAN(json_to_u64, &entryseq),
+				JSON_SCAN(json_to_txid, &txid),
+				JSON_SCAN(json_to_tok, &vin_toks),
+				JSON_SCAN(json_to_tok, &vout_toks));
+
+		if (err)
+			return command_err_bcli_badjson(bcli, err);
+
+		json_object_start(response, NULL);
+		json_add_u64(response, "update_index", entryseq);
+		json_add_txid(response, "txid", &txid);
+
+		json_array_start(response, "vins");
+		json_for_each_arr(j, vin_tok, vin_toks) {
+			struct bitcoin_outpoint out;
+
+			err = json_scan(tmpctx, bcli->output, vin_tok,
+				       "{txid:%,vout:%}",
+				       JSON_SCAN(json_to_txid, &out.txid),
+				       JSON_SCAN(json_to_number, &out.n));
+			if (err)
+				return command_err_bcli_badjson(bcli, err);
+
+			json_object_start(response, NULL);
+			json_add_outpoint(response, "outpoint", &out);
+			json_object_end(response);
+		}
+		json_array_end(response);
+
+		json_array_start(response, "vouts");
+		json_for_each_arr(j, vout_tok, vout_toks) {
+
+			err = json_scan(tmpctx, bcli->output, vout_tok,
+				       "{value:%,scriptPubKey:{hex:%}}",
+				       JSON_SCAN(json_to_bitcoin_amount,
+						 &output.amount.satoshis), /* Raw: bitcoind */
+				       JSON_SCAN_TAL(bcli, json_tok_bin_from_hex,
+						     &output.script));
+			if (err)
+				return command_err_bcli_badjson(bcli, err);
+
+			json_object_start(response, NULL);
+			json_add_sats(response, "amount", output.amount);
+			json_add_string(response, "script", tal_hex(response, output.script));
+			json_object_end(response);
+		}
+		json_array_end(response);
+		json_object_end(response);
+	}
+	json_array_end(response);
+
+	return command_finished(bcli->cmd, response);
+}
+
 struct estimatefee_params {
 	u32 blocks;
 	const char *style;
@@ -899,6 +999,30 @@ static struct command_result *getutxout(struct command *cmd,
 	return command_still_pending(cmd);
 }
 
+static struct command_result *listmempooltransactions(struct command *cmd,
+						      const char *buf,
+						      const jsmntok_t *toks)
+{
+	/* Bitcoin Core calls this the "sequence_start" */
+	u64 *update_index;
+
+	/* bitcoin-cli wants strings. */
+	/* FIXME: add version check for when listmempooltransactions was added */
+	/* FIXME: if not there, call getrawmempool and page for *each* tx? RIP. */
+	if (!param(cmd, buf, toks,
+	           p_req("update_index", param_u64, &update_index),
+	           NULL))
+		return command_param_failed();
+
+	start_bitcoin_cli(NULL, cmd, process_listmempooltxs, true,
+			  BITCOIND_LOW_PRIO, NULL,
+			  "listmempooltransactions",
+			  take(tal_fmt(NULL, "%"PRIu64, *update_index)),
+			  /* verbose=*/"true", NULL);
+
+	return command_still_pending(cmd);
+}
+
 static void bitcoind_failure(struct plugin *p, const char *error_message)
 {
 	const char **cmd = gather_args(bitcoind, "echo", NULL);
@@ -1070,6 +1194,13 @@ static const struct plugin_command commands[] = {
 		"Get information about an output, identified by a {txid} an a {vout}",
 		"",
 		getutxout
+	},
+	{
+		"listmempooltxs",
+		"bitcoin",
+		"Get mempool transactions, (if possible) filtered since {update_index}",
+		"",
+		listmempooltransactions
 	},
 };
 

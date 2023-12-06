@@ -10,6 +10,7 @@
 #include <bitcoin/script.h>
 #include <bitcoin/shadouble.h>
 #include <ccan/array_size/array_size.h>
+#include <ccan/cast/cast.h>
 #include <ccan/io/io.h>
 #include <ccan/tal/str/str.h>
 #include <common/configdir.h>
@@ -27,7 +28,7 @@
 /* The names of the requests we can make to our Bitcoin backend. */
 static const char *methods[] = {"getchaininfo", "getrawblockbyheight",
                                 "sendrawtransaction", "getutxout",
-                                "estimatefees"};
+                                "estimatefees", "listmempooltxs"};
 
 static void bitcoin_destructor(struct plugin *p)
 {
@@ -602,6 +603,143 @@ void bitcoind_getchaininfo_(struct bitcoind *bitcoind,
 	jsonrpc_request_end(req);
 	bitcoin_plugin_send(bitcoind, req);
 }
+
+/* `listmempooltransactions`
+ *
+ * Get most recent mempool transaction entries.
+ * {
+ *	"update_index": <Most recent update_index of mempool entries>,
+ *	"txs": [{      <Array of transaction info>
+ *		"update_index":  <mempool_sequence of this transaction entry>,
+ *		"txid":          <txid of transaction entry>,
+ *		"vins": [{      <Array of input info>
+ *			"outpoint": <outpoint of input spent in transaction entry>,
+ *		}],
+ *		"vouts": [{      <Array of output info>
+ *			"amount": <The output's amount in *sats*>,
+ *			"script":   <The output's scriptPubKey",
+ *		}],
+ *	}]
+ * }
+ */
+struct listmempooltxs_call {
+	struct bitcoind *bitcoind;
+
+	/* The real callback */
+	void (*cb)(struct bitcoind *bitcoind,
+		   u64 next_updated_index,
+		   const struct mempool_tx *txs,
+		   void *arg);
+	/* The real callback arg */
+	void *cb_arg;
+};
+
+static bool json_to_tok(const char *buffer, const jsmntok_t *tok,
+			const jsmntok_t **tokp)
+{
+	*tokp = tok;
+	return true;
+}
+
+static void listmempooltxs_callback(const char *buf, const jsmntok_t *toks,
+			      const jsmntok_t *idtok,
+			      struct listmempooltxs_call *call)
+{
+	const char *err;
+	u64 next_updated_index;
+	const jsmntok_t *memtxs_tok, *memtx_tok;
+	struct mempool_tx *memtxs;
+	size_t i;
+
+	err = json_scan(tmpctx, buf, toks, "{result:{update_index:%,txs:%}}",
+			JSON_SCAN(json_to_u64, &next_updated_index),
+			JSON_SCAN(json_to_tok, &memtxs_tok));
+	if (err)
+		bitcoin_plugin_error(call->bitcoind, buf, toks, "listmempooltxs",
+				     "'result' field error: %s", err);
+
+	memtxs = tal_arr(call, struct mempool_tx, memtxs_tok->size);
+	json_for_each_arr(i, memtx_tok, memtxs_tok) {
+		struct mempool_tx *memtx = &memtxs[i];
+		const jsmntok_t *curr, *vins_tok, *vouts_tok;
+		size_t j;
+
+		err = json_scan(tmpctx, buf, memtx_tok,
+				"{"
+				"update_index:%"
+				",txid:%"
+				",vins:%"
+				",vouts:%"
+				"}",
+				JSON_SCAN(json_to_u64, &memtx->updated_index),
+				JSON_SCAN(json_to_txid, &memtx->txid),
+				JSON_SCAN(json_to_tok, &vins_tok),
+				JSON_SCAN(json_to_tok, &vouts_tok));
+
+		if (err)
+			bitcoin_plugin_error(call->bitcoind, buf, memtx_tok, "listmempooltxs",
+					     "bad 'txs' entry: %s. %.*s", err,
+					     json_tok_full_len(memtx_tok),
+					     json_tok_full(buf, memtx_tok));
+
+		memtx->inputs = tal_arr(memtxs, struct bitcoin_outpoint *, vins_tok->size);
+		json_for_each_arr(j, curr, vins_tok) {
+			memtx->inputs[j] = tal(memtx, struct bitcoin_outpoint);
+			err = json_scan(tmpctx, buf, curr, "{outpoint:%}",
+					JSON_SCAN(json_to_outpoint, &(*memtx->inputs)[j]));
+			if (err)
+				bitcoin_plugin_error(call->bitcoind, buf, curr, "listmempooltxs",
+						     "bad 'vins' entry: %s", err);
+		}
+
+		memtx->outputs = tal_arr(memtxs, struct tx_output *, vouts_tok->size);
+		json_for_each_arr(j, curr, vouts_tok) {
+			memtx->outputs[j] = tal(memtx, struct tx_output);
+			u8 *script;
+			err = json_scan(tmpctx, buf, curr,
+				       "{amount:%,script:%}",
+				       JSON_SCAN(json_to_sat,
+						 &(*memtx->outputs)[j].amount),
+				       JSON_SCAN_TAL(memtx, json_tok_bin_from_hex, &script));
+
+			if (err)
+				bitcoin_plugin_error(call->bitcoind, buf, curr, "listmempooltxs",
+						     "bad 'vouts' entry: %s", err);
+
+			memtx->outputs[j]->script = script;
+		}
+	}
+
+	/* In case they don't free it, we will. */
+	tal_steal(tmpctx, call);
+	call->cb(call->bitcoind, next_updated_index,
+		 cast_const(const struct mempool_tx *, memtxs), call->cb_arg);
+}
+
+void bitcoind_listmempooltransactions_(struct bitcoind *bitcoind,
+				       const u64 update_index,
+				       void (*cb)(struct bitcoind *bitcoind,
+						  u64 next_updated_index,
+						  const struct mempool_tx *txs,
+						  void *arg),
+				       void *cb_arg)
+{
+	struct jsonrpc_request *req;
+	struct listmempooltxs_call *call = tal(bitcoind, struct listmempooltxs_call);
+
+	call->bitcoind = bitcoind;
+	call->cb = cb;
+	call->cb_arg = cb_arg;
+
+	req = jsonrpc_request_start(call, "listmempooltxs", NULL, true,
+				    bitcoind->log,
+				    NULL, listmempooltxs_callback,
+				    call);
+	json_add_u64(req->stream, "update_index", update_index);
+	jsonrpc_request_end(req);
+	bitcoin_plugin_send(bitcoind, req);
+}
+
 
 /* `getutxout`
  *
