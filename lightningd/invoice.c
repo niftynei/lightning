@@ -983,6 +983,7 @@ void invoice_check_onchain_payment(struct lightningd *ld,
 	struct amount_msat msat;
 	if (!amount_sat_to_msat(&msat, sat))
 		abort();
+
 	/* Does this onchain payment fulfill an invoice? */
 	if(!invoices_find_by_fallback_script(ld->wallet->invoices, &inv_dbid, scriptPubKey)) {
 		return;

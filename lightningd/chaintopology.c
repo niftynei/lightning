@@ -1352,6 +1352,49 @@ static void retry_check_chain(struct chain_topology *topo)
 	bitcoind_getchaininfo(topo->bitcoind, false, topo->max_blockheight, check_chain, topo);
 }
 
+/* Recursive! */
+static void retry_hunt_mempool(struct chain_topology *topo);
+
+static void
+hunt_mempool(struct bitcoind *bitcoind,
+	     const u64 next_mempool_index,
+	     const struct mempool_tx *memtxs,
+	     struct chain_topology *topo)
+{
+	topo->last_mempool = next_mempool_index;
+
+	/* For now, we just print items? */
+	for (size_t i = 0; i < tal_count(memtxs); i++) {
+		fprintf(stderr, "new item in mempool...%s...\n",
+			type_to_string(tmpctx, struct bitcoin_txid, &memtxs[i].txid));
+		for (size_t j = 0; j < tal_count(memtxs[i].outputs); j++) {
+			struct tx_output *tout = memtxs[i].outputs[j];
+			if (txfilter_scriptpubkey_matches(topo->ld->owned_txfilter, tout->script)) {
+				struct bitcoin_outpoint outpt;
+				outpt.txid = memtxs[i].txid;
+				outpt.n = j;
+				/* FIXME: is state "unconfirmed" */
+				invoice_check_onchain_payment(topo->ld, tout->script,
+							      tout->amount, &outpt);
+			}
+		}
+	}
+
+	assert(!topo->mempool_timer);
+	topo->mempool_timer
+		= new_reltimer(topo->ld->timers, topo,
+			       time_from_sec(topo->poll_seconds),
+			       retry_hunt_mempool, topo);
+}
+
+static void retry_hunt_mempool(struct chain_topology *topo)
+{
+	topo->mempool_timer = NULL;
+	if (topo->stopping)
+		return;
+	bitcoind_listmempooltransactions(topo->bitcoind, topo->last_mempool, hunt_mempool, topo);
+}
+
 void setup_topology(struct chain_topology *topo,
 		    u32 min_blockheight, u32 max_blockheight)
 {
@@ -1383,6 +1426,10 @@ void setup_topology(struct chain_topology *topo,
 void begin_topology(struct chain_topology *topo)
 {
 	try_extend_tip(topo);
+
+	/* Let's hunt the mempool! */
+	topo->last_mempool = 1;
+	retry_hunt_mempool(topo);
 }
 
 void stop_topology(struct chain_topology *topo)
@@ -1394,4 +1441,5 @@ void stop_topology(struct chain_topology *topo)
 	tal_free(topo->bitcoind->checkchain_timer);
 	tal_free(topo->extend_timer);
 	tal_free(topo->updatefee_timer);
+	tal_free(topo->mempool_timer);
 }

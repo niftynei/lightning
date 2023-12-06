@@ -134,7 +134,7 @@ struct chain_topology {
 	struct bitcoind *bitcoind;
 
 	/* Timers we're running. */
-	struct oneshot *extend_timer, *updatefee_timer, *rebroadcast_timer;
+	struct oneshot *extend_timer, *updatefee_timer, *rebroadcast_timer, *mempool_timer;
 
 	/* Bitcoin transactions we're broadcasting */
 	struct outgoing_tx_map *outgoing_txs;
@@ -149,6 +149,9 @@ struct chain_topology {
 
 	/* Are we stopped? */
 	bool stopping;
+
+    /* Most recent mempool update index */
+    u64 last_mempool;
 };
 
 /* Information relevant to locating a TX in a blockchain. */
