@@ -159,6 +159,7 @@ start_nodes() {
 		funder-per-channel-max=100000
 		funder-fuzz-percent=0
 funder-lease-requests-only=false
+bitcoin-cli=$BITCOIN_BIN/bitcoin-cli
 		lease-fee-base-sat=2sat
 		lease-fee-basis=50
 		invoices-onchain-fallback
