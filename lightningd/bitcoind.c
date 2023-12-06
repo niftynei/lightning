@@ -34,7 +34,7 @@ static void bitcoin_destructor(struct plugin *p)
 {
 	if (p->plugins->ld->state == LD_STATE_SHUTDOWN)
 		return;
-	fatal("The Bitcoin backend died.");
+	fatal("The Bitcoin backend died.\n");
 }
 
 static void plugin_config_cb(const char *buffer,
