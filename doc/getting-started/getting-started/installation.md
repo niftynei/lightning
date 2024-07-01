@@ -154,6 +154,9 @@ make
 make check VALGRIND=0
 ```
 
+Note: You may run into issues with your system keyring when attempting to use `poetry install`.
+See the section below on [Keyring issues](#keyring-issues).
+
 Optionally, add `-j$(nproc)` after `make` to speed up compilation. (e.g. `make -j$(nproc)`)
 
 Running lightning:
@@ -606,3 +609,32 @@ For wss-proxy, you need to install below libraries:
 ```
 pip3 install --user pyln-client websockets
 ```
+
+## Keyring Issues
+
+Poetry requires access to your keyring to pull updates. At present there are two ways to fix this.
+
+One: use a dummy keyring backend
+
+```
+export PYTHON_KEYRING_BACKEND=keyring.backends.fail.Keyring
+poetry install
+```
+
+Two: Add a script to be able to unlock your keyring from the command line.
+
+Add the following to your PATH as an executable.
+
+```/home/<user>/.local/bin/unlock-gnome-keyring
+echo 'NOTE: This script will only work if launched via source or .' >&2
+echo -n 'Login password: ' >&2
+read -s _UNLOCK_PASSWORD || return
+killall -q -u "$(whoami)" gnome-keyring-daemon
+eval $(echo -n "${_UNLOCK_PASSWORD}" \
+           | gnome-keyring-daemon --daemonize --login \
+           | sed -e 's/^/export /')
+unset _UNLOCK_PASSWORD
+echo '' >&2
+```
+
+To use, `source unlock-gnome-keyring` then `poetry install`
