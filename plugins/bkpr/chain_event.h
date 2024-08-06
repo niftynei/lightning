@@ -34,6 +34,9 @@ struct chain_event {
 	 * we'll need to watch it for longer */
 	bool stealable;
 
+    /* Is this chain event becuase of a splice confirmation? */
+    bool splice_close;
+
 	/* Is this a rebalance event? */
 	bool rebalance;
 
