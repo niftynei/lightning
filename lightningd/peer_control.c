@@ -2204,6 +2204,7 @@ static enum watch_result funding_spent(struct channel *channel,
 			 * safeguard. When we see this, it is our responsability
 			 * to clean up this memory-only inflight. */
 			if (inflight->splice_locked_memonly) {
+				/* Log that has been spent */
 				tal_free(inflight);
 				return DELETE_WATCH;
 			}
