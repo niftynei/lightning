@@ -4959,7 +4959,8 @@ static void peer_reconnect(struct peer *peer,
 {
 	struct channel_id channel_id;
 	/* Note: BOLT #2 uses these names! */
-	u64 next_commitment_number, next_revocation_number;
+	u64 next_commitment_number, next_revocation_number,
+	    our_next_commitment;
 	bool retransmit_revoke_and_ack, retransmit_commitment_signed;
 	struct htlc_map_iter it;
 	const struct htlc *htlc;
@@ -5073,10 +5074,16 @@ static void peer_reconnect(struct peer *peer,
 	 *     - MUST set `your_last_per_commitment_secret` to the last
 	 *       `per_commitment_secret` it received
 	 */
+
+	our_next_commitment = peer->next_index[LOCAL];
+	if (inflight && !inflight->last_tx) {
+		our_next_commitment = 0;
+	}
+
 	if (channel_has(peer->channel, OPT_STATIC_REMOTEKEY)) {
 		msg = towire_channel_reestablish
 			(NULL, &peer->channel_id,
-			 peer->next_index[LOCAL],
+			 our_next_commitment,
 			 peer->revocations_received,
 			 last_remote_per_commit_secret,
 			 /* Can send any (valid) point here */
@@ -5092,7 +5099,7 @@ static void peer_reconnect(struct peer *peer,
 		 */
 		msg = towire_channel_reestablish
 			(NULL, &peer->channel_id,
-			 peer->next_index[LOCAL],
+			 our_next_commitment,
 			 peer->revocations_received,
 			 last_remote_per_commit_secret,
 			 &my_current_per_commitment_point,
@@ -5167,7 +5174,7 @@ static void peer_reconnect(struct peer *peer,
 			status_info("Resuming splice negotation.");
 			resume_splice_negotiation(peer,
 						  false,
-						  true,
+						  our_next_commitment == 0,
 						  false,
 						  true);
 		} else if (bitcoin_txid_eq(remote_next_funding,
@@ -5180,7 +5187,7 @@ static void peer_reconnect(struct peer *peer,
 			if (local_next_funding)
 				assume_stfu_mode(peer);
 			resume_splice_negotiation(peer,
-						  true,
+						  next_commitment_number == 0,
 						  local_next_funding,
 						  true,
 						  local_next_funding);
@@ -5321,7 +5328,9 @@ static void peer_reconnect(struct peer *peer,
 	 *     - MUST reuse the same commitment number for its next
 	 *       `commitment_signed`.
 	 */
-	if (next_commitment_number == peer->next_index[REMOTE] - 1) {
+	if (inflight && next_commitment_number == 0) {
+		retransmit_commitment_signed = false;
+        } else if (next_commitment_number == peer->next_index[REMOTE] - 1) {
 		/* We completed opening, we don't re-transmit that one! */
 		if (next_commitment_number == 0)
 			peer_failed_err(peer->pps,

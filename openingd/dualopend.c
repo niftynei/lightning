@@ -3996,7 +3996,9 @@ static void do_reconnect_dance(struct state *state)
 		tlvs->next_funding = &tx_state->funding.txid;
 
 	msg = towire_channel_reestablish
-		(NULL, &state->channel_id, 1, 0,
+		(NULL, &state->channel_id,
+		 tx_state->has_commitments ? 1 : 0,
+		 0,
 		 &last_remote_per_commit_secret,
 		 &state->first_per_commitment_point[LOCAL], tlvs);
 
@@ -4045,10 +4047,14 @@ static void do_reconnect_dance(struct state *state)
 					     &last_local_per_commit_secret);
 	}
 
-	if (next_commitment_number != 1)
-		open_err_fatal(state, "Bad reestablish commitment_number:"
-			       "%"PRIu64" vs %d", next_commitment_number, 1);
-
+	if (next_commitment_number != 1) {
+		if (!tlvs->next_funding)
+			open_err_fatal(state, "Bad reestablish commitment_number:"
+				       "%"PRIu64" vs %d", next_commitment_number, 1);
+		else if (next_commitment_number != 0)
+			open_err_fatal(state, "Bad reestablish commitment_number:"
+				       "%"PRIu64" vs %d", next_commitment_number, 1);
+	}
 	/* BOLT #2:
 	 * A receiving node:
 	 * - if `next_funding_txid` is set:
@@ -4071,10 +4077,12 @@ static void do_reconnect_dance(struct state *state)
 			char *err;
 			/* We haven't gotten their tx_sigs */
 			if (!tx_state->remote_funding_sigs_rcvd) {
-				err = do_reconnect_commit_sigs(tmpctx, state, tx_state);
-				if (err) {
-					open_abort(state, "Reconnect failed: %s", err);
-					return;
+				if (next_commitment_number == 0) {
+					err = do_reconnect_commit_sigs(tmpctx, state, tx_state);
+					if (err) {
+						open_abort(state, "Reconnect failed: %s", err);
+						return;
+					}
 				}
 
 				if (!tx_state->has_commitments)
