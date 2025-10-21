@@ -126,6 +126,9 @@ struct tx_state {
 
 	/* Lease's commited chan max ppt */
 	u16 lease_chan_max_ppt;
+
+	/* What is our role for this tx */
+	enum tx_role our_role;
 };
 
 static struct tx_state *new_tx_state(const tal_t *ctx)
@@ -184,8 +187,6 @@ struct state {
 
 	struct channel_id channel_id;
 	u8 channel_flags;
-
-	enum tx_role our_role;
 
 	u32 feerate_per_kw_commitment;
 
@@ -1054,7 +1055,7 @@ static u8 *psbt_to_tx_sigs_msg(const tal_t *ctx,
 			       const struct wally_psbt *psbt)
 {
 	const struct witness **ws =
-		psbt_to_witnesses(tmpctx, psbt, state->our_role, -1);
+		psbt_to_witnesses(tmpctx, psbt, state->tx_state->our_role, -1);
 
 	return towire_tx_signatures(ctx, &state->channel_id,
 				    &state->tx_state->funding.txid,
@@ -1079,7 +1080,7 @@ static void report_channel_hsmd(const struct state *state,
 			      "Overflow converting accepter_funding "
 			      "to msats");
 
-	msg = towire_hsmd_setup_channel(NULL, state->our_role == TX_INITIATOR,
+	msg = towire_hsmd_setup_channel(NULL, state->tx_state->our_role == TX_INITIATOR,
 					total,
 					accepter_msats,
 					&tx_state->funding.txid,
@@ -1164,7 +1165,7 @@ static u8 *msg_for_remote_commit(const tal_t *ctx,
 
 static enum tx_role their_role(const struct state *state)
 {
-	return state->our_role == TX_INITIATOR ?
+	return state->tx_state->our_role == TX_INITIATOR ?
 		TX_ACCEPTER : TX_INITIATOR;
 }
 
@@ -2116,7 +2117,7 @@ static void revert_channel_state(struct state *state)
 	struct tx_state *tx_state = state->tx_state;
 	struct amount_sat total;
 	struct amount_msat our_msats;
-	enum side opener = state->our_role == TX_INITIATOR ? LOCAL : REMOTE;
+	enum side opener = state->tx_state->our_role == TX_INITIATOR ? LOCAL : REMOTE;
 
 	/* We've already checked this */
 	if (!amount_sat_add(&total, tx_state->opener_funding,
@@ -2125,7 +2126,7 @@ static void revert_channel_state(struct state *state)
 
 	/* We've already checked this */
 	if (!amount_sat_to_msat(&our_msats,
-				state->our_role == TX_INITIATOR ?
+				state->tx_state->our_role == TX_INITIATOR ?
 				tx_state->opener_funding :
 				tx_state->accepter_funding))
 		abort();
@@ -2380,7 +2381,7 @@ static void accepter_start(struct state *state, const u8 *oc2_msg)
 	enum dualopend_wire msg_type;
 	struct tx_state *tx_state = state->tx_state;
 
-	state->our_role = TX_ACCEPTER;
+	tx_state->our_role = TX_ACCEPTER;
 
 	if (!fromwire_open_channel2(tmpctx, oc2_msg, &chain_hash,
 				    &cid,
@@ -2655,7 +2656,7 @@ static void accepter_start(struct state *state, const u8 *oc2_msg)
 	init_changeset(tx_state, tx_state->psbt);
 
 	/* Now that we know the total of the channel, we can set the reserve */
-	set_reserve(tx_state, total, state->our_role);
+	set_reserve(tx_state, total, tx_state->our_role);
 
 	if (!check_config_bounds(tmpctx, total,
 				 state->feerate_per_kw_commitment,
@@ -2745,7 +2746,7 @@ static void accepter_start(struct state *state, const u8 *oc2_msg)
 	 * to an invalid number, 1 (initiator sets; valid is even) */
 	tx_state->funding_serial = 1;
 	/* Figure out what the funding transaction looks like! */
-	if (!run_tx_interactive(state, tx_state, &tx_state->psbt, TX_ACCEPTER))
+	if (!run_tx_interactive(state, tx_state, &tx_state->psbt, tx_state->our_role))
 		return;
 
 	if (state->require_confirmed_inputs[LOCAL]) {
@@ -2983,7 +2984,7 @@ static void opener_start(struct state *state, u8 *msg)
 					    &expected_rates))
 		master_badmsg(WIRE_DUALOPEND_OPENER_INIT, msg);
 
-	state->our_role = TX_INITIATOR;
+	tx_state->our_role = TX_INITIATOR;
 	wally_psbt_get_locktime(tx_state->psbt, &locktime);
 	tx_state->tx_locktime = locktime;
 	open_tlv = tlv_opening_tlvs_new(tmpctx);
@@ -3299,7 +3300,7 @@ static void opener_start(struct state *state, u8 *msg)
 	/* We need to check that the inputs we've already provided
 	 * via the API are confirmed :/ */
 	if (state->require_confirmed_inputs[REMOTE]) {
-		err_reason = validate_inputs(state, tx_state, state->our_role);
+		err_reason = validate_inputs(state, tx_state, tx_state->our_role);
 		if (err_reason) {
 			open_abort(state, "%s", err_reason);
 			return;
@@ -3319,7 +3320,7 @@ static void opener_start(struct state *state, u8 *msg)
 
 	/* Now that we know the total of the channel, we can
 	 * set the reserve */
-	set_reserve(tx_state, total, state->our_role);
+	set_reserve(tx_state, total, tx_state->our_role);
 
 	if (!check_config_bounds(tmpctx, total,
 				 state->feerate_per_kw_commitment,
@@ -3341,7 +3342,7 @@ static void opener_start(struct state *state, u8 *msg)
 	}
 
 	/* Figure out what the funding transaction looks like! */
-	if (!run_tx_interactive(state, tx_state, &tx_state->psbt, TX_INITIATOR))
+	if (!run_tx_interactive(state, tx_state, &tx_state->psbt, tx_state->our_role))
 		return;
 
 	if (state->require_confirmed_inputs[LOCAL]) {
@@ -3407,7 +3408,7 @@ static void rbf_wrap_up(struct state *state,
 	 * - if is the *opener*:
 	 *   - MUST send at least one `tx_add_output`,  which contains the
 	 *   channel's funding output */
-	if (state->our_role == TX_INITIATOR)
+	if (tx_state->our_role == TX_INITIATOR)
 		add_funding_output(tx_state, state, total);
 	else
 		/* if accepter, set to an invalid number, 1 (odd is invalid) */
@@ -3416,7 +3417,7 @@ static void rbf_wrap_up(struct state *state,
 	/* Add all of our inputs/outputs to the changeset */
 	init_changeset(tx_state, tx_state->psbt);
 
-	if (state->our_role == TX_INITIATOR) {
+	if (tx_state->our_role == TX_INITIATOR) {
 		/* Send our first message; opener initiates */
 		if (!send_next(state, tx_state, &tx_state->psbt, &aborted)) {
 			if (!aborted)
@@ -3427,13 +3428,13 @@ static void rbf_wrap_up(struct state *state,
 
 	if (!run_tx_interactive(state, tx_state,
 				&tx_state->psbt,
-				state->our_role)) {
+				tx_state->our_role)) {
 		return;
 	}
 
 	if (state->require_confirmed_inputs[LOCAL]) {
 		err_reason = validate_inputs(state, tx_state,
-					     state->our_role == TX_INITIATOR ?
+					     tx_state->our_role == TX_INITIATOR ?
 					     TX_ACCEPTER : TX_INITIATOR);
 		if (err_reason) {
 			open_abort(state, "%s", err_reason);
@@ -3464,7 +3465,7 @@ static void rbf_wrap_up(struct state *state,
 	/* Find the funding transaction txid */
 	psbt_txid(NULL, tx_state->psbt, &tx_state->funding.txid, NULL);
 
-	if (state->our_role == TX_ACCEPTER)
+	if (tx_state->our_role == TX_ACCEPTER)
 		/* FIXME: lease fee rate !? */
 		msg = accepter_commits(state, tx_state, total, &err_reason);
 	else
@@ -3480,7 +3481,7 @@ static void rbf_wrap_up(struct state *state,
 		return;
 	}
 
-	if (state->our_role == TX_ACCEPTER)
+	if (tx_state->our_role == TX_ACCEPTER)
 		handle_send_tx_sigs(state, msg);
 	else
 		wire_sync_write(REQ_FD, take(msg));
@@ -3501,6 +3502,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 
 	/* We need a new tx_state! */
 	tx_state = new_tx_state(rbf_ctx);
+	tx_state->our_role = TX_INITIATOR;
 	/* Copy over the channel config info -- everything except
 	 * the reserve will be the same */
 	tx_state->localconf = state->tx_state->localconf;
@@ -3635,7 +3637,7 @@ static void rbf_local_start(struct state *state, u8 *msg)
 	}
 
 	/* Now that we know the total of the channel, we can set the reserve */
-	set_reserve(tx_state, total, state->our_role);
+	set_reserve(tx_state, total, tx_state->our_role);
 
 	if (!check_config_bounds(tmpctx, total,
 				 state->feerate_per_kw_commitment,
@@ -3679,6 +3681,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 
 	/* We need a new tx_state! */
 	tx_state = new_tx_state(rbf_ctx);
+	tx_state->our_role = TX_ACCEPTER;
 	ack_rbf_tlvs = tlv_tx_ack_rbf_tlvs_new(tmpctx);
 
 	if (!fromwire_tx_init_rbf(tmpctx, rbf_msg, &cid,
@@ -3697,13 +3700,6 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 		open_err_warn(state, "%s",
 			      "Last funding attempt not complete:"
 			      " missing your funding tx_sigs");
-
-	if (state->our_role == TX_INITIATOR) {
-		open_abort(state, "%s",
-			   "Only the channel initiator is allowed"
-			   " to initiate RBF");
-		goto free_rbf_ctx;
-	}
 
 	/* Maybe they want a different funding amount! */
 	if (init_rbf_tlvs && init_rbf_tlvs->funding_output_contribution) {
@@ -3786,7 +3782,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 	}
 
 	/* Now that we know the total of the channel, we can set the reserve */
-	set_reserve(tx_state, total, state->our_role);
+	set_reserve(tx_state, total, tx_state->our_role);
 
 	if (!check_config_bounds(tmpctx, total,
 				 state->feerate_per_kw_commitment,
@@ -4075,7 +4071,7 @@ static void do_reconnect_dance(struct state *state)
 				if (!tx_state->has_commitments)
 					send_our_sigs = false;
 			}
-			if (send_our_sigs && psbt_side_finalized(tx_state->psbt, state->our_role)) {
+			if (send_our_sigs && psbt_side_finalized(tx_state->psbt, tx_state->our_role)) {
 				msg = psbt_to_tx_sigs_msg(NULL, state, tx_state->psbt);
 				peer_write(state->pps, take(msg));
 
@@ -4470,13 +4466,13 @@ int main(int argc, char *argv[])
 						     opener);
 
 		if (opener == LOCAL) {
-			state->our_role = TX_INITIATOR;
+			state->tx_state->our_role = TX_INITIATOR;
 			ok = amount_msat_to_sat(&state->tx_state->opener_funding, our_msat);
 			ok &= amount_sat_sub(&state->tx_state->accepter_funding,
 					     total_funding,
 					     state->tx_state->opener_funding);
 		} else {
-			state->our_role = TX_ACCEPTER;
+			state->tx_state->our_role = TX_ACCEPTER;
 			ok = amount_msat_to_sat(&state->tx_state->accepter_funding, our_msat);
 			ok &= amount_sat_sub(&state->tx_state->opener_funding,
 					     total_funding,

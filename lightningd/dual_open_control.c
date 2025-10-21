@@ -87,23 +87,6 @@ static void channel_saved_err_broken_reconn(struct channel *channel,
 	channel_disconnect(channel, LOG_INFORM, true, errmsg);
 }
 
-static void channel_err_broken(struct channel *channel,
-			       const char *fmt, ...)
-{
-	va_list ap;
-	const char *errmsg;
-
-	va_start(ap, fmt);
-	errmsg = tal_vfmt(tmpctx, fmt, ap);
-	va_end(ap);
-
-	if (channel_state_uncommitted(channel->state)) {
-		log_broken(channel->log, "%s", errmsg);
-		channel_unsaved_close_conn(channel, errmsg);
-	} else
-		channel_disconnect(channel, LOG_BROKEN, false, errmsg);
-}
-
 void json_add_unsaved_channel(struct command *cmd,
 			      struct json_stream *response,
 			      const struct channel *channel,
@@ -2637,10 +2620,6 @@ json_openchannel_bump(struct command *cmd,
 				    " Current state %s, expected state %s",
 				    channel_state_name(channel),
 				    channel_state_str(DUALOPEND_AWAITING_LOCKIN));
-	if (channel->opener != LOCAL)
-		return command_fail(cmd, FUNDING_STATE_INVALID,
-				    "Only the channel opener can initiate an"
-				    " RBF attempt");
 
 	inflight = channel_current_inflight(channel);
 	if (!inflight) {
@@ -3447,15 +3426,7 @@ static void handle_psbt_changed(struct subd *dualopend,
 	tal_free(channel->type);
 	channel->type = tal_steal(channel, channel_type);
 
-	switch (oa->role) {
-	case TX_INITIATOR:
-		if (!cmd) {
-			channel_err_broken(channel,
-					   tal_fmt(tmpctx, "Unexpected"
-						   " PSBT_CHANGED %s",
-						   tal_hex(tmpctx, msg)));
-			return;
-		}
+	if (cmd) {
 		/* This might be the first time we learn the channel_id */
 		channel->cid = cid;
 		response = json_stream_success(cmd);
@@ -3470,8 +3441,7 @@ static void handle_psbt_changed(struct subd *dualopend,
 
 		oa->cmd = NULL;
 		was_pending(command_success(cmd, response));
-		return;
-	case TX_ACCEPTER:
+	} else {
 		payload = tal(dualopend, struct openchannel2_psbt_payload);
 		payload->dualopend = dualopend;
 		tal_add_destructor2(dualopend,
@@ -3480,9 +3450,7 @@ static void handle_psbt_changed(struct subd *dualopend,
 		payload->psbt = tal_steal(payload, psbt);
 		payload->channel = channel;
 		plugin_hook_call_openchannel2_changed(dualopend->ld, NULL, payload);
-		return;
 	}
-	abort();
 }
 
 static void handle_commit_ready(struct subd *dualopend,

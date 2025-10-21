@@ -429,6 +429,60 @@ def test_v2_rbf_single(node_factory, bitcoind, chainparams):
     l1.daemon.wait_for_log('sendrawtx exit 0')
 
 
+@pytest.mark.xfail
+@unittest.skipIf(TEST_NETWORK != 'regtest', 'elementsd doesnt yet support PSBT features we need')
+@pytest.mark.openchannel('v2')
+def test_v2_rbf_init_remote(node_factory, bitcoind, chainparams):
+    l1, l2 = node_factory.get_nodes(2)
+
+    l1.rpc.connect(l2.info['id'], 'localhost', l2.port)
+    amount = 2**24
+    chan_amount = 100000
+    bitcoind.rpc.sendtoaddress(l1.rpc.newaddr()['bech32'], amount / 10**8 + 0.01)
+    bitcoind.rpc.sendtoaddress(l2.rpc.newaddr()['bech32'], amount / 10**8 + 0.01)
+    bitcoind.generate_block(1)
+    # Wait for it to arrive.
+    wait_for(lambda: len(l1.rpc.listfunds()['outputs']) > 0)
+    wait_for(lambda: len(l2.rpc.listfunds()['outputs']) > 0)
+
+    res = l1.rpc.fundchannel(l2.info['id'], chan_amount)
+    chan_id = res['channel_id']
+    vins = bitcoind.rpc.decoderawtransaction(res['tx'])['vin']
+    assert(only_one(vins))
+    prev_utxos = ["{}:{}".format(vins[0]['txid'], vins[0]['vout'])]
+
+    # Check that we're waiting for lockin
+    l1.daemon.wait_for_log(' to DUALOPEND_AWAITING_LOCKIN')
+
+    next_feerate = find_next_feerate(l1, l2)
+
+    # Initiate an RBF
+    startweight = 42 + 172  # base weight, funding output
+    initpsbt = l2.rpc.fundpsbt(chan_amount, next_feerate, startweight)
+
+    # Do the bump from the remote
+    bump = l2.rpc.openchannel_bump(chan_id, chan_amount, initpsbt['psbt'])
+
+    update = l2.rpc.openchannel_update(chan_id, bump['psbt'])
+    assert update['commitments_secured']
+
+    # Sign our inputs, and continue
+    signed_psbt = l2.rpc.signpsbt(update['psbt'])['signed_psbt']
+
+    l2.rpc.openchannel_signed(chan_id, signed_psbt)
+
+    bitcoind.generate_block(1)
+    sync_blockheight(bitcoind, [l1])
+    l1.daemon.wait_for_log(' to CHANNELD_NORMAL')
+    l2.daemon.wait_for_log(' to CHANNELD_NORMAL')
+
+    # Check that feerate info is gone
+    fee_info = only_one(l2.rpc.listpeerchannels(l1.info['id'])['channels'])
+    assert 'initial_feerate' not in fee_info
+    assert 'last_feerate' not in fee_info
+    assert 'next_feerate' not in fee_info
+
+
 @unittest.skipIf(TEST_NETWORK != 'regtest', 'elementsd doesnt yet support PSBT features we need')
 @pytest.mark.openchannel('v2')
 def test_v2_rbf_abort_retry(node_factory, bitcoind, chainparams):
