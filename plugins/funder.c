@@ -206,6 +206,9 @@ datastore_add_success(struct command *cmd,
 		   "Saved utxos for channel (%s) to datastore",
 		   key);
 
+	if (cmd->type == COMMAND_TYPE_NOTIFICATION)
+		return notification_handled(cmd);
+
 	return command_hook_cont_psbt(cmd, signed_psbt);
 }
 
@@ -997,6 +1000,9 @@ datastore_list_success(struct command *cmd,
 				tal_arr(info, struct bitcoin_outpoint *, 0);
 
 		tal_arr_expand(&info->prev_outs, outpoint);
+		plugin_log(cmd->plugin, LOG_DBG,
+			   "Adding outpoint %s to prevout list",
+			   fmt_bitcoin_outpoint(tmpctx, outpoint));
 	}
 
 	req = jsonrpc_request_start(cmd,
@@ -1073,6 +1079,14 @@ json_rbf_channel_call(struct command *cmd,
 		return command_hook_success(cmd);
 	}
 
+	plugin_log(cmd->plugin, LOG_DBG,
+		   "Starting RBF. Our last funding: %s"
+		   " Their last funding: %s"
+		   " Their current funding: %s",
+		   fmt_amount_sat(tmpctx, *info->our_last_funding),
+		   fmt_amount_sat(tmpctx, *info->their_last_funding),
+		   fmt_amount_sat(tmpctx, info->their_funding));
+
 	/* Fetch out previous utxos from the datastore */
 	req = jsonrpc_request_start(cmd,
 				    "listdatastore",
@@ -1131,6 +1145,47 @@ delete_channel_from_datastore(struct command *cmd,
 			tal_fmt(cmd, "funder/%s",
 				fmt_channel_id(cmd, cid)));
 	return send_outreq(req);
+}
+
+static struct command_result *json_peer_sigs(struct command *cmd,
+					     const char *buf,
+					     const jsmntok_t *params)
+{
+	struct channel_id cid;
+	struct node_id peer_id;
+	struct pending_open *open;
+	struct wally_psbt *psbt;
+	const char *err;
+
+	err = json_scan(tmpctx, buf, params,
+			"{openchannel_peer_sigs:"
+			"{channel_id:%,signed_psbt:%,peer_id:%}}",
+			JSON_SCAN(json_to_channel_id, &cid),
+			JSON_SCAN_TAL(cmd, json_to_psbt, &psbt),
+			JSON_SCAN(json_to_node_id, &peer_id));
+	if (err)
+		plugin_err(cmd->plugin,
+			   "`openchannel_peer_sigs` did not scan: %s. %*.s",
+			   err, json_tok_full_len(params),
+			   json_tok_full(buf, params));
+
+	/* Find the channel open that's got this channel_id */
+	open = find_channel_pending_open(&cid);
+	if (!open) {
+		open = new_channel_open(cmd->plugin, cmd->plugin,
+					peer_id, cid, psbt);
+		plugin_log(cmd->plugin, LOG_DBG,
+			   "`openchannel_peer_sigs` new channel open to"
+			   " track %s",
+			   fmt_channel_id(tmpctx, &cid));
+	}
+
+	plugin_log(cmd->plugin, LOG_DBG,
+		   "`openchannel_peer_sigs` notice received for"
+		   " channel %s",
+		   tal_hexstr(tmpctx, &cid, sizeof(cid)));
+
+	return remember_channel_utxos(cmd, open, psbt);
 }
 
 static struct command_result *json_channel_state_changed(struct command *cmd,
@@ -1559,6 +1614,10 @@ const struct plugin_notification notifs[] = {
 	{
 		"channel_state_changed",
 		json_channel_state_changed,
+	},
+	{
+		"openchannel_peer_sigs",
+		json_peer_sigs,
 	},
 };
 
