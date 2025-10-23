@@ -3674,6 +3674,7 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 	enum dualopend_wire msg_type;
 	struct tlv_tx_init_rbf_tlvs *init_rbf_tlvs;
 	struct tlv_tx_ack_rbf_tlvs *ack_rbf_tlvs;
+	struct amount_sat their_last_funding, our_last_funding, their_funding;
 
 	u8 *msg;
 	/* tmpctx gets cleaned midway, so we have a context for this fn */
@@ -3695,6 +3696,16 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 	check_channel_id(state, &cid, &state->channel_id);
 	peer_billboard(false, "channel rbf: init received from peer");
 
+	/* Keep track of who's funding is what */
+	/* It's possible that we init'd the channel, and they're now doing an RBF */
+	if (state->tx_state->our_role != tx_state->our_role) {
+		their_last_funding = state->tx_state->accepter_funding;
+		our_last_funding = state->tx_state->opener_funding;
+	} else {
+		their_last_funding = state->tx_state->opener_funding;
+		our_last_funding = state->tx_state->accepter_funding;
+	}
+
 	/* Have you sent us everything we need yet ? */
 	if (!state->tx_state->remote_funding_sigs_rcvd)
 		open_err_warn(state, "%s",
@@ -3703,19 +3714,21 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 
 	/* Maybe they want a different funding amount! */
 	if (init_rbf_tlvs && init_rbf_tlvs->funding_output_contribution) {
-		tx_state->opener_funding =
+		their_funding =
 			amount_sat(*init_rbf_tlvs->funding_output_contribution);
 
-		if (!amount_sat_eq(tx_state->opener_funding,
-				   state->tx_state->opener_funding))
-			status_debug("RBF: opener amt changed %s->%s",
+		if (!amount_sat_eq(their_funding,
+				   their_last_funding))
+			status_debug("RBF: peer's amt changed %s->%s",
 				     fmt_amount_sat(tmpctx,
-						    state->tx_state->opener_funding),
+						    their_last_funding),
 				     fmt_amount_sat(tmpctx,
-						    tx_state->opener_funding));
+						    their_funding));
+	/* Otherwise we use the last known funding amount */
 	} else
-		/* Otherwise we use the last known funding amount */
-		tx_state->opener_funding = state->tx_state->opener_funding;
+		their_funding = their_last_funding;
+
+	tx_state->opener_funding = their_funding;
 
 	/* Set the require_confirmed_inputs to whatever they set here */
 	if (init_rbf_tlvs)
@@ -3742,9 +3755,9 @@ static void rbf_remote_start(struct state *state, const u8 *rbf_msg)
 	/* We ask master if this is ok */
 	msg = towire_dualopend_got_rbf_offer(NULL,
 					     &state->channel_id,
-					     state->tx_state->opener_funding,
-					     tx_state->opener_funding,
-					     state->tx_state->accepter_funding,
+					     their_last_funding,
+					     their_funding,
+					     our_last_funding,
 					     tx_state->feerate_per_kw_funding,
 					     tx_state->tx_locktime,
 					     state->requested_lease,
