@@ -2220,7 +2220,8 @@ static void handle_peer_tx_sigs_msg(struct subd *dualopend,
 	}
 
 	/* Send notification with peer's signed PSBT */
-	notify_openchannel_peer_sigs(ld, &channel->cid,
+	notify_openchannel_peer_sigs(ld, &channel->peer->id,
+				     &channel->cid,
 				     inflight->funding_psbt);
 }
 

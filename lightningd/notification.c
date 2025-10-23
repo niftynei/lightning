@@ -558,9 +558,11 @@ void notify_block_added(struct lightningd *ld,
 }
 
 static void openchannel_peer_sigs_serialize(struct json_stream *stream,
+					    const struct node_id *pid,
 					    const struct channel_id *cid,
 					    const struct wally_psbt *psbt)
 {
+	json_add_node_id(stream, "peer_id", pid);
 	json_add_channel_id(stream, "channel_id", cid);
 	json_add_psbt(stream, "signed_psbt", psbt);
 }
@@ -568,13 +570,14 @@ static void openchannel_peer_sigs_serialize(struct json_stream *stream,
 REGISTER_NOTIFICATION(openchannel_peer_sigs);
 
 void notify_openchannel_peer_sigs(struct lightningd *ld,
+				  const struct node_id *pid,
 				  const struct channel_id *cid,
 				  const struct wally_psbt *psbt)
 {
 	struct jsonrpc_notification *n = notify_start(ld, "openchannel_peer_sigs");
 	if (!n)
 		return;
-	openchannel_peer_sigs_serialize(n->stream, cid, psbt);
+	openchannel_peer_sigs_serialize(n->stream, pid, cid, psbt);
 	notify_send(ld, n);
 }
 

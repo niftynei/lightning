@@ -98,6 +98,7 @@ void notify_block_added(struct lightningd *ld,
 			const struct block *block);
 
 void notify_openchannel_peer_sigs(struct lightningd *ld,
+				  const struct node_id *pid,
 				  const struct channel_id *cid,
 				  const struct wally_psbt *psbt);
 
