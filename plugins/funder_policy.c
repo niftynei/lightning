@@ -229,6 +229,12 @@ calculate_our_funding(struct funder_policy *policy,
 {
 	struct amount_sat avail_channel_space, net_available_funds;
 
+	/* If it's an RBF, always return last amount */
+	if (our_last_funding != NULL) {
+		*our_funding = *our_last_funding;
+		return NULL;
+	}
+
 	/* Are we only funding lease requests ? */
 	if (policy->leases_only && amount_sat_is_zero(requested_lease)) {
 		*our_funding = AMOUNT_SAT(0);
