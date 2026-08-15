@@ -191,15 +191,23 @@ impl Amount {
     pub fn msat(&self) -> u64 {
         self.msat
     }
+
+    /// Adds two amounts, returning `None` if the result overflows.
+    pub fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.msat.checked_add(rhs.msat).map(Amount::from_msat)
+    }
+
+    /// Subtracts two amounts, returning `None` if the result underflows.
+    pub fn checked_sub(self, rhs: Self) -> Option<Self> {
+        self.msat.checked_sub(rhs.msat).map(Amount::from_msat)
+    }
 }
 
 impl std::ops::Add for Amount {
     type Output = Amount;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Amount {
-            msat: self.msat + rhs.msat,
-        }
+        self.checked_add(rhs).expect("attempt to add with overflow")
     }
 }
 
@@ -207,9 +215,8 @@ impl std::ops::Sub for Amount {
     type Output = Amount;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Amount {
-            msat: self.msat - rhs.msat,
-        }
+        self.checked_sub(rhs)
+            .expect("attempt to subtract with overflow")
     }
 }
 
@@ -825,6 +832,28 @@ mod test {
             let serialized: String = parsed.amount.into();
             assert_eq!(s, serialized);
         }
+    }
+
+    #[test]
+    fn test_amount_checked_arithmetic() {
+        let one = Amount::from_msat(1);
+
+        assert_eq!(one.checked_add(one), Some(Amount::from_msat(2)));
+        assert_eq!(one.checked_sub(one), Some(Amount::from_msat(0)));
+        assert_eq!(Amount::from_msat(u64::MAX).checked_add(one), None);
+        assert_eq!(Amount::from_msat(0).checked_sub(one), None);
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to subtract with overflow")]
+    fn test_amount_sub_overflow() {
+        let _ = Amount::from_msat(1) - Amount::from_msat(2);
+    }
+
+    #[test]
+    #[should_panic(expected = "attempt to add with overflow")]
+    fn test_amount_add_overflow() {
+        let _ = Amount::from_msat(u64::MAX) + Amount::from_msat(1);
     }
 
     #[test]
