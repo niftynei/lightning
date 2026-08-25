@@ -5486,6 +5486,52 @@ def test_bwatch_rescan_scriptpubkey(node_factory, bitcoind):
     l1.daemon.wait_for_log(r'Rescan complete')
 
 
+def test_bwatch_incomplete_rescan_fails(node_factory):
+    """A missing historical block must fail registration at its exact height."""
+    l1 = node_factory.get_node(options=BWATCH_OPTS)
+    wait_bwatch_caught_up(l1)
+
+    current_height = l1.rpc.getinfo()['blockheight']
+    missing_height = current_height - 2
+    owner = 'plugin/test/incomplete-rescan'
+    test_spk = "76a914" + "22" * 20 + "88ac"
+
+    def hide_block(req):
+        if int(req['params'][0]) != missing_height:
+            return None
+        return {
+            'result': None,
+            'error': {'code': -8, 'message': 'Block not available (pruned data)'},
+            'id': req['id'],
+        }
+
+    l1.daemon.rpcproxy.mock_rpc('getblockhash', hide_block)
+    try:
+        with pytest.raises(
+                RpcError,
+                match=rf'Historical rescan failed at block {missing_height} '
+                      rf'while scanning through {current_height}'):
+            l1.rpc.addscriptpubkeywatch(
+                owner=owner,
+                scriptpubkey=test_spk,
+                start_block=missing_height,
+            )
+    finally:
+        l1.daemon.rpcproxy.mock_rpc('getblockhash', None)
+
+    # The watch remains durable: callers such as tracker can retain a syncing
+    # state and retry once the backend can serve the complete range.
+    watch = only_one([
+        w for w in l1.rpc.listwatch()['watches']
+        if w.get('scriptpubkey') == test_spk
+    ])
+    assert owner in watch['owners']
+    status = l1.rpc.call('bwatch-status')
+    assert status['last_rescan_error']['height'] == missing_height
+    assert status['last_rescan_error']['target_height'] == current_height
+    l1.daemon.wait_for_log(rf'Historical rescan failed at block {missing_height}')
+
+
 @pytest.mark.slow_test
 def test_bwatch_scriptpubkey_watch_notifies_lightningd(node_factory, bitcoind):
     """Test that a matching scriptpubkey triggers watch_found to lightningd"""
@@ -5508,6 +5554,85 @@ def test_bwatch_scriptpubkey_watch_notifies_lightningd(node_factory, bitcoind):
 
     # Wait for bwatch to process the block and send watch_found notification
     l1.daemon.wait_for_log(r'watch_found at block', timeout=60)
+
+
+@pytest.mark.slow_test
+def test_bwatch_external_plugin_notifications(node_factory, bitcoind):
+    """Matches are bounded by one processed/reverted boundary per block."""
+    plugin_path = os.path.join(
+        os.getcwd(), 'tests/plugins/bwatch_notifications.py'
+    )
+    opts = dict(BWATCH_OPTS)
+    opts['plugin'] = plugin_path
+    l1 = node_factory.get_node(options=opts)
+    wait_bwatch_caught_up(l1)
+
+    address = bitcoind.rpc.getnewaddress()
+    scriptpubkey = bitcoind.rpc.getaddressinfo(address)['scriptPubKey']
+    owner = 'plugin/bwatch_notifications/treasury/receive/0'
+    start_height = bitcoind.rpc.getblockcount() + 1
+    l1.rpc.addscriptpubkeywatch(
+        owner=owner,
+        scriptpubkey=scriptpubkey,
+        start_block=start_height,
+    )
+    # A reorg notification is block-level, not multiplied by watch owners.
+    for index in range(32):
+        l1.rpc.addscriptpubkeywatch(
+            owner=f'plugin/bwatch_notifications/extra/{index}',
+            scriptpubkey=scriptpubkey,
+            start_block=start_height,
+        )
+
+    txid = bitcoind.rpc.sendtoaddress(address, 0.01)
+    blockhash = bitcoind.generate_block(1, wait_for_mempool=txid)[0]
+
+    def matching_events():
+        return [
+            e for e in l1.rpc.listbwatchevents()['events']
+            if e['type'] == 'match' and e['owner'] == owner
+        ]
+
+    wait_for(lambda: len(matching_events()) == 1, timeout=60)
+    match = matching_events()[0]
+    assert match['watch_type'] == 'scriptpubkey'
+    assert match['blockheight'] == start_height
+    assert match['txindex'] >= 0
+    assert match['index'] >= 0
+    assert match['tx']
+
+    def processed_events():
+        return [
+            e for e in l1.rpc.listbwatchevents()['events']
+            if e['type'] == 'processed' and e['blockhash'] == blockhash
+        ]
+
+    wait_for(lambda: len(processed_events()) == 1, timeout=60)
+    events = l1.rpc.listbwatchevents()['events']
+    match_position = next(
+        i for i, event in enumerate(events)
+        if event['type'] == 'match' and event['owner'] == owner
+    )
+    processed_position = next(
+        i for i, event in enumerate(events)
+        if event['type'] == 'processed' and event['blockhash'] == blockhash
+    )
+    assert match_position < processed_position
+
+    bitcoind.rpc.invalidateblock(blockhash)
+    bitcoind.generate_block(2)
+
+    def revert_events():
+        return [
+            e for e in l1.rpc.listbwatchevents()['events']
+            if e['type'] == 'reverted'
+            and e['blockheight'] == start_height
+            and e['blockhash'] == blockhash
+        ]
+
+    wait_for(lambda: len(revert_events()) == 1, timeout=60)
+    time.sleep(0.25)
+    assert len(revert_events()) == 1
 
 
 def test_bwatch_outpoint_watch_notifies_lightningd(node_factory, bitcoind):

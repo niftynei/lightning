@@ -1,0 +1,35 @@
+{
+  "$schema": "../../rpc-schema-draft.json",
+  "type": "object",
+  "additionalProperties": false,
+  "notification": "bwatch_block_processed",
+  "title": "Notification that bwatch finished processing a block",
+  "description": [
+    "The **bwatch_block_processed** notification is sent during normal forward chain processing after `bwatch` has persisted a block and emitted every `bwatch_match` notification found while scanning it.",
+    "It provides a block-level completion boundary. Subscribers can process pending work once per block rather than registering a separate blockdepth watch for each match.",
+    "Registration-time historical rescans do not emit this notification for each revisited block; successful completion of the add-watch RPC is the rescan boundary.",
+    "Subscribers should handle a repeated notification idempotently after process recovery."
+  ],
+  "added": "v26.09",
+  "request": {},
+  "response": {
+    "required": [
+      "blockheight",
+      "blockhash"
+    ],
+    "properties": {
+      "blockheight": {
+        "type": "u32",
+        "description": [
+          "The height of the processed block."
+        ]
+      },
+      "blockhash": {
+        "type": "hash",
+        "description": [
+          "The hash of the processed block."
+        ]
+      }
+    }
+  }
+}

@@ -18,6 +18,7 @@
 #include <lightningd/jsonrpc.h>
 #include <lightningd/lightningd.h>
 #include <lightningd/log.h>
+#include <lightningd/notification.h>
 #include <lightningd/plugin.h>
 #include <lightningd/watchman.h>
 #include <wallet/wallet.h>
@@ -494,7 +495,7 @@ static const struct watch_dispatch {
 
 /* dispatch_watch_found: search depth_handlers then watch_handlers for owner.
  * depth is NULL for tx-based notifications, set for blockdepth notifications. */
-static void dispatch_watch_found(struct lightningd *ld,
+static bool dispatch_watch_found(struct lightningd *ld,
 				 const char *owner,
 				 const struct bitcoin_tx *tx,
 				 size_t outnum,
@@ -508,7 +509,7 @@ static void dispatch_watch_found(struct lightningd *ld,
 		if (strstarts(owner, depth_handlers[i].prefix)) {
 			const char *suffix = owner + strlen(depth_handlers[i].prefix);
 			depth_handlers[i].handler(ld, suffix, *depth, blockheight);
-			return;
+			return true;
 		}
 	}
 	for (size_t i = 0; i < ARRAY_SIZE(watch_handlers); i++) {
@@ -517,13 +518,13 @@ static void dispatch_watch_found(struct lightningd *ld,
 		if (strstarts(owner, watch_handlers[i].prefix)) {
 			const char *suffix = owner + strlen(watch_handlers[i].prefix);
 			watch_handlers[i].handler(ld, suffix, tx, outnum, blockheight, txindex);
-			return;
+			return true;
 		}
 	}
-	log_debug(ld->log, "No handler for watch owner: %s", owner);
+	return false;
 }
 
-static void dispatch_watch_revert(struct lightningd *ld,
+static bool dispatch_watch_revert(struct lightningd *ld,
 				  const char *owner,
 				  u32 blockheight)
 {
@@ -533,7 +534,7 @@ static void dispatch_watch_revert(struct lightningd *ld,
 		if (strstarts(owner, depth_handlers[i].prefix)) {
 			const char *suffix = owner + strlen(depth_handlers[i].prefix);
 			depth_handlers[i].revert(ld, suffix, blockheight);
-			return;
+			return true;
 		}
 	}
 	for (size_t i = 0; i < ARRAY_SIZE(watch_handlers); i++) {
@@ -542,10 +543,26 @@ static void dispatch_watch_revert(struct lightningd *ld,
 		if (strstarts(owner, watch_handlers[i].prefix)) {
 			const char *suffix = owner + strlen(watch_handlers[i].prefix);
 			watch_handlers[i].revert(ld, suffix, blockheight);
-			return;
+			return true;
 		}
 	}
-	log_debug(ld->log, "No revert handler for watch owner: %s", owner);
+	return false;
+}
+
+/* External plugins use an explicit namespace so a typo in an internal owner
+ * cannot silently turn into a public event.  Match notifications are broadcast
+ * via CLN's normal subscription mechanism; consumers filter on the opaque owner. */
+static bool is_plugin_watch_owner(const char *owner)
+{
+	return strstarts(owner, "plugin/") && owner[strlen("plugin/")] != '\0';
+}
+
+static bool valid_watch_type(const char *watch_type)
+{
+	return streq(watch_type, "scriptpubkey")
+		|| streq(watch_type, "outpoint")
+		|| streq(watch_type, "scid")
+		|| streq(watch_type, "blockdepth");
 }
 
 static struct command_result *param_bitcoin_tx(struct command *cmd,
@@ -590,12 +607,14 @@ static struct command_result *json_watch_found(struct command *cmd,
 					       const jsmntok_t *params)
 {
 	const char **owners;
+	const char *watch_type;
 	u32 *blockheight, *txindex, *index, *depth;
 	struct bitcoin_tx *tx;
 
 	if (!param_check(cmd, buffer, params,
 			 p_req("blockheight", param_number, &blockheight),
 			 p_req("owners", param_string_array, &owners),
+			 p_req("watch_type", param_string, &watch_type),
 			 p_opt("tx", param_bitcoin_tx, &tx),
 			 p_opt("txindex", param_number, &txindex),
 			 p_opt("index", param_number, &index),
@@ -612,6 +631,9 @@ static struct command_result *json_watch_found(struct command *cmd,
 	if (!depth && tx && !txindex)
 		return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
 				    "tx provided without txindex in watch_found");
+	if (!valid_watch_type(watch_type))
+		return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+				    "unknown watch_type '%s'", watch_type);
 
 	if (!cmd->ld->watchman)
 		return command_fail(cmd, LIGHTNINGD, "Watchman not initialized");
@@ -621,12 +643,20 @@ static struct command_result *json_watch_found(struct command *cmd,
 
 	log_debug(cmd->ld->log, "watch_found at block %u%s", *blockheight,
 		  depth ? " (blockdepth)" : "");
-	for (size_t i = 0; i < tal_count(owners); i++)
-		dispatch_watch_found(cmd->ld, owners[i], tx,
-				     index ? *index : 0,
-				     *blockheight,
-				     txindex ? *txindex : 0,
-				     depth);
+	for (size_t i = 0; i < tal_count(owners); i++) {
+		if (dispatch_watch_found(cmd->ld, owners[i], tx,
+					 index ? *index : 0,
+					 *blockheight,
+					 txindex ? *txindex : 0,
+					 depth))
+			continue;
+		if (is_plugin_watch_owner(owners[i]))
+			notify_bwatch_match(cmd->ld, owners[i], watch_type, tx,
+					    *blockheight, txindex, index, depth);
+		else
+			log_debug(cmd->ld->log,
+				  "No handler for watch owner: %s", owners[i]);
+	}
 
 	struct json_stream *response = json_stream_success(cmd);
 	json_add_u32(response, "blockheight", *blockheight);
@@ -659,7 +689,9 @@ static struct command_result *json_watch_revert(struct command *cmd,
 		   NULL))
 		return command_param_failed();
 
-	dispatch_watch_revert(cmd->ld, owner, *blockheight);
+	if (!dispatch_watch_revert(cmd->ld, owner, *blockheight))
+		log_debug(cmd->ld->log,
+			  "No revert handler for watch owner: %s", owner);
 	struct json_stream *response = json_stream_success(cmd);
 	json_add_u32(response, "blockheight", *blockheight);
 	return command_success(cmd, response);
@@ -670,6 +702,37 @@ static const struct json_command watch_revert_command = {
 	json_watch_revert,
 };
 AUTODATA(json_command, &watch_revert_command);
+
+static struct command_result *json_bwatch_block_reverted(struct command *cmd,
+							  const char *buffer,
+							  const jsmntok_t *obj UNUSED,
+							  const jsmntok_t *params)
+{
+	u32 *blockheight;
+	struct bitcoin_blkid *blockhash;
+
+	if (!param(cmd, buffer, params,
+		   p_req("blockheight", param_number, &blockheight),
+		   p_req("blockhash", param_bitcoin_blkid_cmd, &blockhash),
+		   NULL))
+		return command_param_failed();
+
+	if (!cmd->ld->watchman)
+		return command_fail(cmd, LIGHTNINGD, "Watchman not initialized");
+	if (command_check_only(cmd))
+		return command_check_done(cmd);
+
+	notify_bwatch_block_reverted(cmd->ld, *blockheight, blockhash);
+	struct json_stream *response = json_stream_success(cmd);
+	json_add_u32(response, "blockheight", *blockheight);
+	return command_success(cmd, response);
+}
+
+static const struct json_command bwatch_block_reverted_command = {
+	"bwatch_block_reverted",
+	json_bwatch_block_reverted,
+};
+AUTODATA(json_command, &bwatch_block_reverted_command);
 
 static struct command_result *json_revert_block_processed(struct command *cmd,
 							  const char *buffer,
@@ -750,6 +813,7 @@ static struct command_result *json_block_processed(struct command *cmd,
 	}
 
 	notify_new_block(wm->ld);
+	notify_bwatch_block_processed(wm->ld, *blockheight, blockhash);
 
 	struct json_stream *response = json_stream_success(cmd);
 	json_add_u32(response, "blockheight", *blockheight);

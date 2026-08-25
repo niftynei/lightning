@@ -588,6 +588,15 @@ command, so they invoices can also be paid onchain.
   Enable the experimental *bwatch* chain watcher.  Without this, the
   plugin stays loaded but does not poll `bitcoind` or process watches.
 
+  External plugins can register watches using an owner beginning with
+  `plugin/`. During normal forward processing, matches are delivered through
+  `bwatch_match`, followed by one `bwatch_block_processed` boundary after all
+  matches for a block. A reorg emits one `bwatch_block_reverted` notification
+  for each removed block. Historical rescans do not emit processed boundaries;
+  successful completion of the add-watch RPC is their boundary. Notifications
+  are broadcast, so subscribers must filter matches on the opaque owner they
+  supplied and reconcile their recorded matches by block.
+
 ### Networking options
 
 Note that for simple setups, the implicit *autolisten* option does the

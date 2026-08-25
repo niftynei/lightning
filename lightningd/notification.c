@@ -1,5 +1,6 @@
 #include "config.h"
 #include <bitcoin/preimage.h>
+#include <bitcoin/tx.h>
 #include <ccan/cast/cast.h>
 #include <lightningd/channel.h>
 #include <lightningd/coin_mvts.h>
@@ -571,6 +572,79 @@ void notify_block_added(struct lightningd *ld,
 	if (!n)
 		return;
 	block_added_notification_serialize(n->stream, block);
+	notify_send(ld, n);
+}
+
+static void bwatch_match_notification_serialize(struct json_stream *stream,
+						const char *owner,
+						const char *watch_type,
+						const struct bitcoin_tx *tx,
+						u32 blockheight,
+						const u32 *txindex,
+						const u32 *index,
+						const u32 *depth)
+{
+	json_add_string(stream, "owner", owner);
+	json_add_string(stream, "watch_type", watch_type);
+	json_add_u32(stream, "blockheight", blockheight);
+	if (tx)
+		json_add_tx(stream, "tx", tx);
+	if (txindex)
+		json_add_u32(stream, "txindex", *txindex);
+	if (index)
+		json_add_u32(stream, "index", *index);
+	if (depth)
+		json_add_u32(stream, "depth", *depth);
+}
+REGISTER_NOTIFICATION(bwatch_match);
+
+void notify_bwatch_match(struct lightningd *ld,
+			 const char *owner,
+			 const char *watch_type,
+			 const struct bitcoin_tx *tx,
+			 u32 blockheight,
+			 const u32 *txindex,
+			 const u32 *index,
+			 const u32 *depth)
+{
+	struct jsonrpc_notification *n = notify_start(ld, "bwatch_match");
+	if (!n)
+		return;
+	bwatch_match_notification_serialize(n->stream, owner, watch_type, tx,
+					     blockheight, txindex, index, depth);
+	notify_send(ld, n);
+}
+
+static void bwatch_block_notification_serialize(struct json_stream *stream,
+						u32 blockheight,
+						const struct bitcoin_blkid *blockhash)
+{
+	json_add_u32(stream, "blockheight", blockheight);
+	json_add_bitcoin_blkid(stream, "blockhash", blockhash);
+}
+REGISTER_NOTIFICATION(bwatch_block_processed);
+
+void notify_bwatch_block_processed(struct lightningd *ld,
+				   u32 blockheight,
+				   const struct bitcoin_blkid *blockhash)
+{
+	struct jsonrpc_notification *n = notify_start(ld, "bwatch_block_processed");
+	if (!n)
+		return;
+	bwatch_block_notification_serialize(n->stream, blockheight, blockhash);
+	notify_send(ld, n);
+}
+
+REGISTER_NOTIFICATION(bwatch_block_reverted);
+
+void notify_bwatch_block_reverted(struct lightningd *ld,
+				  u32 blockheight,
+				  const struct bitcoin_blkid *blockhash)
+{
+	struct jsonrpc_notification *n = notify_start(ld, "bwatch_block_reverted");
+	if (!n)
+		return;
+	bwatch_block_notification_serialize(n->stream, blockheight, blockhash);
 	notify_send(ld, n);
 }
 
