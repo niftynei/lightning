@@ -21,8 +21,13 @@ void bwatch_send_blockdepth_found(struct command *cmd,
 				  u32 blockheight);
 
 void bwatch_send_watch_revert(struct command *cmd,
-			      const char *owner,
-			      u32 blockheight);
+				      const char *owner,
+				      u32 blockheight);
+
+/* Emit one external plugin notification for a removed block. */
+void bwatch_send_block_reverted(struct command *cmd,
+				const struct bitcoin_blkid *blockhash,
+				u32 blockheight);
 
 /* Send chain name / IBD status / sync info to watchman on startup.
  * Used as a timer callback from init; the ack/err handlers kick the
@@ -65,6 +70,9 @@ struct command_result *json_bwatch_del_blockdepth(struct command *cmd,
 struct command_result *json_bwatch_list(struct command *cmd,
 					const char *buffer,
 					const jsmntok_t *params);
+struct command_result *json_bwatch_status(struct command *cmd,
+					  const char *buffer,
+					  const jsmntok_t *params);
 
 /* Send a block_processed RPC to watchman after a new block has been
  * persisted.  The next poll is started from the ack callback so we don't

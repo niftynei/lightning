@@ -1,0 +1,71 @@
+{
+  "$schema": "../../rpc-schema-draft.json",
+  "type": "object",
+  "additionalProperties": false,
+  "notification": "bwatch_match",
+  "title": "Notification that an external plugin's blockchain watch matched",
+  "description": [
+    "The **bwatch_match** notification is sent when the experimental `bwatch` plugin matches a watch whose owner begins with `plugin/`.",
+    "The owner is opaque to Core Lightning and allows subscribers to distinguish their own watches. Notifications are broadcast to every subscriber, so plugins must filter on owner.",
+    "Matches found during normal forward processing precede the corresponding `bwatch_block_processed` notification. Historical rescan matches instead complete when the add-watch RPC returns successfully."
+  ],
+  "added": "v26.09",
+  "request": {},
+  "response": {
+    "required": [
+      "owner",
+      "watch_type",
+      "blockheight"
+    ],
+    "properties": {
+      "owner": {
+        "type": "string",
+        "description": [
+          "The opaque `plugin/`-prefixed owner supplied when the watch was registered."
+        ]
+      },
+      "watch_type": {
+        "type": "string",
+        "enum": [
+          "scriptpubkey",
+          "outpoint",
+          "scid",
+          "blockdepth"
+        ],
+        "description": [
+          "The kind of watch which matched."
+        ]
+      },
+      "blockheight": {
+        "type": "u32",
+        "description": [
+          "The height of the block which satisfied the watch."
+        ]
+      },
+      "tx": {
+        "type": "hex",
+        "description": [
+          "The matched raw transaction, for scriptpubkey and outpoint watches."
+        ]
+      },
+      "txindex": {
+        "type": "u32",
+        "description": [
+          "The transaction's index within the block."
+        ]
+      },
+      "index": {
+        "type": "u32",
+        "description": [
+          "The matched output index for a scriptpubkey or SCID watch, or input index for an outpoint watch."
+        ]
+      },
+      "depth": {
+        "type": "u32",
+        "description": [
+          "The current confirmation depth for a blockdepth watch."
+        ]
+      }
+    }
+  }
+}

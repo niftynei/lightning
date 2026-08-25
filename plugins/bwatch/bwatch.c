@@ -1,6 +1,7 @@
 #include "config.h"
 #include <ccan/array_size/array_size.h>
 #include <ccan/ptrint/ptrint.h>
+#include <ccan/tal/str/str.h>
 #include <common/json_param.h>
 #include <common/json_parse.h>
 #include <common/json_stream.h>
@@ -10,6 +11,7 @@
 #include <plugins/bwatch/bwatch_scanner.h>
 #include <plugins/bwatch/bwatch_store.h>
 #include <plugins/bwatch/bwatch_wiregen.h>
+#include <stdarg.h>
 
 struct bwatch *bwatch_of(struct plugin *plugin)
 {
@@ -34,6 +36,32 @@ static struct command_result *handle_block(struct command *cmd,
 					   const char *buf,
 					   const jsmntok_t *result,
 					   ptrint_t *block_height);
+
+static void set_poll_error(struct bwatch *bwatch, u32 height,
+			   const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	tal_free(bwatch->last_poll_error);
+	bwatch->last_poll_error = tal_vfmt(bwatch, fmt, ap);
+	va_end(ap);
+	bwatch->last_poll_error_height = height;
+}
+
+static void clear_poll_error(struct bwatch *bwatch)
+{
+	bwatch->last_poll_error = tal_free(bwatch->last_poll_error);
+}
+
+static void set_rescan_error(struct bwatch *bwatch, u32 height,
+			     u32 target_height, const char *message)
+{
+	tal_free(bwatch->last_rescan_error);
+	bwatch->last_rescan_error = tal_strdup(bwatch, message);
+	bwatch->last_rescan_error_height = height;
+	bwatch->last_rescan_target_height = target_height;
+}
 
 /* Parse the bitcoin block out of a getrawblockbyheight response. */
 static struct bitcoin_block *block_from_response(const char *buf,
@@ -90,26 +118,31 @@ static void bwatch_notify_reorg_watches(struct command *cmd,
 	/* Snapshot owners first; revert handlers may call watchman_del and
 	 * mutate these tables. */
 
-	/* Scriptpubkey watches are perennial: always notify. */
+	/* Internal scriptpubkey watches are perennial: always notify.  External
+	 * plugins receive one bwatch_block_reverted notification below instead. */
 	struct scriptpubkey_watches_iter sit;
 	for (w = scriptpubkey_watches_first(bwatch->scriptpubkey_watches, &sit);
 	     w;
 	     w = scriptpubkey_watches_next(bwatch->scriptpubkey_watches, &sit)) {
-		for (size_t i = 0; i < tal_count(w->owners); i++)
-			tal_arr_expand(&owners, w->owners[i]);
+		for (size_t i = 0; i < tal_count(w->owners); i++) {
+			if (!strstarts(w->owners[i], "plugin/"))
+				tal_arr_expand(&owners, w->owners[i]);
+		}
 	}
 
-	/* Outpoint/scid/blockdepth: only notify watches whose anchor block is
-	 * being torn down (start_block >= removed_height).  Older long-lived
-	 * watches stay armed and will refire naturally on the new chain. */
+	/* Internal outpoint/scid/blockdepth owners are notified when their anchor
+	 * block is removed.  External plugins reconcile all of their recorded
+	 * matches from the single block-level notification. */
 	struct outpoint_watches_iter oit;
 	for (w = outpoint_watches_first(bwatch->outpoint_watches, &oit);
 	     w;
 	     w = outpoint_watches_next(bwatch->outpoint_watches, &oit)) {
 		if (w->start_block < removed_height)
 			continue;
-		for (size_t i = 0; i < tal_count(w->owners); i++)
-			tal_arr_expand(&owners, w->owners[i]);
+		for (size_t i = 0; i < tal_count(w->owners); i++) {
+			if (!strstarts(w->owners[i], "plugin/"))
+				tal_arr_expand(&owners, w->owners[i]);
+		}
 	}
 
 	struct scid_watches_iter scit;
@@ -118,8 +151,10 @@ static void bwatch_notify_reorg_watches(struct command *cmd,
 	     w = scid_watches_next(bwatch->scid_watches, &scit)) {
 		if (w->start_block < removed_height)
 			continue;
-		for (size_t i = 0; i < tal_count(w->owners); i++)
-			tal_arr_expand(&owners, w->owners[i]);
+		for (size_t i = 0; i < tal_count(w->owners); i++) {
+			if (!strstarts(w->owners[i], "plugin/"))
+				tal_arr_expand(&owners, w->owners[i]);
+		}
 	}
 
 	struct blockdepth_watches_iter bdit;
@@ -128,12 +163,16 @@ static void bwatch_notify_reorg_watches(struct command *cmd,
 	     w = blockdepth_watches_next(bwatch->blockdepth_watches, &bdit)) {
 		if (w->start_block < removed_height)
 			continue;
-		for (size_t i = 0; i < tal_count(w->owners); i++)
-			tal_arr_expand(&owners, w->owners[i]);
+		for (size_t i = 0; i < tal_count(w->owners); i++) {
+			if (!strstarts(w->owners[i], "plugin/"))
+				tal_arr_expand(&owners, w->owners[i]);
+		}
 	}
 
 	for (size_t i = 0; i < tal_count(owners); i++)
 		bwatch_send_watch_revert(cmd, owners[i], removed_height);
+	bwatch_send_block_reverted(cmd, &bwatch->current_blockhash,
+				  removed_height);
 }
 
 /* Remove tip block on reorg  */
@@ -199,6 +238,8 @@ static struct command_result *handle_block(struct command *cmd,
 
 	block = block_from_response(buf, result, &blockhash);
 	if (!block) {
+		set_poll_error(bwatch, block_height,
+			       "getrawblockbyheight returned no usable block");
 		plugin_log(cmd->plugin, LOG_UNUSUAL,
 			   "Failed to get/parse block %u: '%.*s'",
 			   block_height,
@@ -206,6 +247,7 @@ static struct command_result *handle_block(struct command *cmd,
 			   json_tok_full(buf, result));
 		return poll_finished(cmd);
 	}
+	clear_poll_error(bwatch);
 
 	if (!is_init) {
 		/* Verify the parent of the new block is our current tip; if
@@ -264,10 +306,14 @@ static struct command_result *getchaininfo_done(struct command *cmd,
 			"{blockcount:%}",
 			JSON_SCAN(json_to_number, &blockheight));
 	if (err) {
+		set_poll_error(bwatch, bwatch->current_height,
+			       "getchaininfo parse failed: %s", err);
 		plugin_log(cmd->plugin, LOG_BROKEN,
 			   "getchaininfo parse failed: %s", err);
 		return poll_finished(cmd);
 	}
+	bwatch->backend_height = blockheight;
+	bwatch->backend_height_known = true;
 
 	if (blockheight > bwatch->current_height) {
 		u32 target_height;
@@ -290,6 +336,7 @@ static struct command_result *getchaininfo_done(struct command *cmd,
 	plugin_log(cmd->plugin, LOG_DBG,
 		   "No block change, current_height remains %u",
 		   bwatch->current_height);
+	clear_poll_error(bwatch);
 	return poll_finished(cmd);
 }
 
@@ -300,6 +347,10 @@ static struct command_result *getchaininfo_failed(struct command *cmd,
 						  const jsmntok_t *result,
 						  void *unused UNUSED)
 {
+	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+
+	set_poll_error(bwatch, bwatch->current_height,
+		       "getchaininfo request failed");
 	plugin_log(cmd->plugin, LOG_DBG,
 		   "getchaininfo failed (bcli not ready?): %.*s",
 		   json_tok_full_len(result), json_tok_full(buf, result));
@@ -352,6 +403,9 @@ static struct command_result *fetch_block_rescan(struct command *cmd,
  * commands just terminate. */
 static struct command_result *rescan_complete(struct command *cmd)
 {
+	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+
+	bwatch->last_rescan_error = tal_free(bwatch->last_rescan_error);
 	switch (cmd->type) {
 	case COMMAND_TYPE_NORMAL:
 	case COMMAND_TYPE_HOOK:
@@ -379,11 +433,22 @@ static struct command_result *rescan_block_done(struct command *cmd,
 	struct bitcoin_block *block = block_from_response(buf, result, &blockhash);
 
 	if (!block) {
-		/* Chain may have rolled back past this height; stop quietly. */
-		plugin_log(cmd->plugin, LOG_DBG,
-			   "Rescan: block %u unavailable (chain rolled back?), stopping",
-			   rescan->current_block);
-		return rescan_complete(cmd);
+		set_rescan_error(bwatch_of(cmd->plugin), rescan->current_block,
+				 rescan->target_block,
+				 "getrawblockbyheight returned no usable block");
+		/* A successful add-watch response promises that the complete requested
+		 * range was examined.  Missing pruned blocks, backend errors, and malformed
+		 * block data must therefore fail the RPC instead of silently shortening the
+		 * scan.  The watch remains installed so a durable caller can retain an
+		 * incomplete/syncing state and retry later. */
+		plugin_log(cmd->plugin, LOG_UNUSUAL,
+			   "Historical rescan failed at block %u while scanning "
+			   "through %u: getrawblockbyheight returned no usable block",
+			   rescan->current_block, rescan->target_block);
+		return command_fail(cmd, LIGHTNINGD,
+				    "Historical rescan failed at block %u while scanning "
+				    "through %u: getrawblockbyheight returned no usable block",
+				    rescan->current_block, rescan->target_block);
 	}
 
 	/* rescan->watch is forwarded so the scanner only checks that one
@@ -482,6 +547,7 @@ static const struct plugin_command commands[] = {
 	{ "delscidwatch",         json_bwatch_del_scid         },
 	{ "delblockdepthwatch",   json_bwatch_del_blockdepth   },
 	{ "listwatch",            json_bwatch_list             },
+	{ "bwatch-status",        json_bwatch_status           },
 };
 
 int main(int argc, char *argv[])
@@ -492,6 +558,9 @@ int main(int argc, char *argv[])
 	bwatch = tal(NULL, struct bwatch);
 	bwatch->poll_interval_ms = 30000;
 	bwatch->experimental = false;
+	bwatch->backend_height_known = false;
+	bwatch->last_poll_error = NULL;
+	bwatch->last_rescan_error = NULL;
 
 	plugin_main(argv, init, take(bwatch), PLUGIN_RESTARTABLE, true, NULL,
 		    commands, ARRAY_SIZE(commands),

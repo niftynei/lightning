@@ -7,6 +7,7 @@
 #include <lightningd/plugin.h>
 
 struct balance_snapshot;
+struct bitcoin_tx;
 struct onionreply;
 struct wally_psbt;
 
@@ -101,6 +102,27 @@ void notify_balance_snapshot(struct lightningd *ld,
 
 void notify_block_added(struct lightningd *ld,
 			const struct block *block);
+
+/* Match notifications are for watches registered by external plugins with an
+ * owner beginning with "plugin/". Block lifecycle notifications provide one
+ * completion/reversion boundary independent of the number of watches. Internal
+ * watch owners continue to dispatch to in-process handlers in watchman.c. */
+void notify_bwatch_match(struct lightningd *ld,
+			 const char *owner,
+			 const char *watch_type,
+			 const struct bitcoin_tx *tx,
+			 u32 blockheight,
+			 const u32 *txindex,
+			 const u32 *index,
+			 const u32 *depth);
+
+void notify_bwatch_block_processed(struct lightningd *ld,
+				   u32 blockheight,
+				   const struct bitcoin_blkid *blockhash);
+
+void notify_bwatch_block_reverted(struct lightningd *ld,
+				  u32 blockheight,
+				  const struct bitcoin_blkid *blockhash);
 
 void notify_openchannel_peer_sigs(struct lightningd *ld,
 				  const struct channel_id *cid,

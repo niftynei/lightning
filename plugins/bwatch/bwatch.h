@@ -57,6 +57,8 @@ struct watch {
 struct bwatch {
 	struct plugin *plugin;
 	u32 current_height;
+	u32 backend_height;
+	bool backend_height_known;
 	struct bitcoin_blkid current_blockhash;
 	/* Oldest first, most recent last. Used to replay a reorg by
 	 * peeling tips off until the parent hash matches the new chain. */
@@ -74,6 +76,14 @@ struct bwatch {
 	/* Opt-in: bwatch is loaded but stays inert (no chain polling, no
 	 * watch processing) unless the user passes --experimental-bwatch. */
 	bool experimental;
+
+	/* Polling and historical rescans are independent, so a healthy tip poll
+	 * must not hide an incomplete descriptor rescan. */
+	char *last_poll_error;
+	u32 last_poll_error_height;
+	char *last_rescan_error;
+	u32 last_rescan_error_height;
+	u32 last_rescan_target_height;
 };
 
 /* Helper: get last block_history (or NULL) */

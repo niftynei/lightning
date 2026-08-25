@@ -1,0 +1,34 @@
+{
+  "$schema": "../../rpc-schema-draft.json",
+  "type": "object",
+  "additionalProperties": false,
+  "notification": "bwatch_block_reverted",
+  "title": "Notification that bwatch removed a stale block",
+  "description": [
+    "The **bwatch_block_reverted** notification is sent once for each block removed while `bwatch` processes a chain reorganization.",
+    "Subscribers should discard or reverse every match they recorded for the given block. Its delivery count is bounded by the reorganization depth, independent of the number of registered watches.",
+    "Subscribers should handle a repeated notification idempotently after process recovery."
+  ],
+  "added": "v26.09",
+  "request": {},
+  "response": {
+    "required": [
+      "blockheight",
+      "blockhash"
+    ],
+    "properties": {
+      "blockheight": {
+        "type": "u32",
+        "description": [
+          "The height of the removed block."
+        ]
+      },
+      "blockhash": {
+        "type": "hash",
+        "description": [
+          "The hash of the removed block."
+        ]
+      }
+    }
+  }
+}
