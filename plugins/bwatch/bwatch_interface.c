@@ -46,6 +46,8 @@ void bwatch_send_watch_found(struct command *cmd,
 			json_add_u32(req->js, "index", index);
 	}
 	json_add_u32(req->js, "blockheight", blockheight);
+	json_add_string(req->js, "watch_type",
+			bwatch_get_watch_type_name(w->type));
 
 	/* Add owners array */
 	json_array_start(req->js, "owners");
@@ -74,6 +76,8 @@ void bwatch_send_blockdepth_found(struct command *cmd,
 				    notify_ack, notify_ack, NULL);
 	json_add_u32(req->js, "blockheight", blockheight);
 	json_add_u32(req->js, "depth", depth);
+	json_add_string(req->js, "watch_type",
+			bwatch_get_watch_type_name(w->type));
 
 	json_array_start(req->js, "owners");
 	for (size_t i = 0; i < tal_count(w->owners); i++)
@@ -99,6 +103,21 @@ void bwatch_send_watch_revert(struct command *cmd,
 				    notify_ack, notify_ack, NULL);
 	json_add_string(req->js, "owner", owner);
 	json_add_u32(req->js, "blockheight", blockheight);
+	send_outreq(req);
+}
+
+void bwatch_send_block_reverted(struct command *cmd,
+				const struct bitcoin_blkid *blockhash,
+				u32 blockheight)
+{
+	struct command *aux = aux_command(cmd);
+	struct out_req *req;
+
+	req = jsonrpc_request_start(aux, "bwatch_block_reverted",
+				    notify_ack, notify_ack, NULL);
+	json_add_u32(req->js, "blockheight", blockheight);
+	json_add_string(req->js, "blockhash",
+			fmt_bitcoin_blkid(tmpctx, blockhash));
 	send_outreq(req);
 }
 
@@ -610,6 +629,54 @@ struct command_result *json_bwatch_list(struct command *cmd,
 	}
 
 	json_out_end(jout, ']');
+	json_out_end(jout, '}');
+	return command_success(cmd, jout);
+}
+
+struct command_result *json_bwatch_status(struct command *cmd,
+					  const char *buffer,
+					  const jsmntok_t *params)
+{
+	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+	struct json_out *jout;
+	u32 lag = 0;
+
+	if (!param(cmd, buffer, params, NULL))
+		return command_param_failed();
+
+	if (bwatch->backend_height_known
+	    && bwatch->backend_height > bwatch->current_height)
+		lag = bwatch->backend_height - bwatch->current_height;
+
+	jout = json_out_new(cmd);
+	json_out_start(jout, NULL, '{');
+	json_out_add(jout, "enabled", false, "%s",
+		     bwatch->experimental ? "true" : "false");
+	json_out_add(jout, "current_height", false, "%u",
+		     bwatch->current_height);
+	if (bwatch->backend_height_known) {
+		json_out_add(jout, "backend_height", false, "%u",
+			     bwatch->backend_height);
+		json_out_add(jout, "lag", false, "%u", lag);
+		json_out_add(jout, "caught_up", false, "%s",
+			     lag == 0 ? "true" : "false");
+	}
+	if (bwatch->last_poll_error) {
+		json_out_start(jout, "last_poll_error", '{');
+		json_out_add(jout, "height", false, "%u",
+			     bwatch->last_poll_error_height);
+		json_out_addstr(jout, "message", bwatch->last_poll_error);
+		json_out_end(jout, '}');
+	}
+	if (bwatch->last_rescan_error) {
+		json_out_start(jout, "last_rescan_error", '{');
+		json_out_add(jout, "height", false, "%u",
+			     bwatch->last_rescan_error_height);
+		json_out_add(jout, "target_height", false, "%u",
+			     bwatch->last_rescan_target_height);
+		json_out_addstr(jout, "message", bwatch->last_rescan_error);
+		json_out_end(jout, '}');
+	}
 	json_out_end(jout, '}');
 	return command_success(cmd, jout);
 }
