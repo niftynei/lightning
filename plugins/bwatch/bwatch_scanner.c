@@ -15,7 +15,7 @@
 
 /* Check all scriptpubkey watches via hash lookup */
 static void check_scriptpubkey_watches(struct command *cmd,
-				       struct bwatch *bwatch,
+				       struct scriptpubkey_watches *watches,
 				       const struct bitcoin_tx *tx,
 				       u32 blockheight,
 				       const struct bitcoin_blkid *blockhash,
@@ -32,7 +32,7 @@ static void check_scriptpubkey_watches(struct command *cmd,
 			.len = tx->wtx->outputs[i].script_len
 		};
 
-		w = scriptpubkey_watches_get(bwatch->scriptpubkey_watches, &k);
+		w = scriptpubkey_watches_get(watches, &k);
 		if (!w)
 			continue;
 		if (w->start_block != UINT32_MAX
@@ -87,7 +87,8 @@ static void check_tx_against_all_watches(struct command *cmd,
 					 const struct bitcoin_blkid *blockhash,
 					 u32 txindex)
 {
-	check_scriptpubkey_watches(cmd, bwatch, tx, blockheight, blockhash, txindex);
+	check_scriptpubkey_watches(cmd, bwatch->scriptpubkey_watches, tx,
+				 blockheight, blockhash, txindex);
 	check_outpoint_watches(cmd, bwatch, tx, blockheight, blockhash, txindex);
 }
 
@@ -240,6 +241,18 @@ void bwatch_process_block_txs(struct command *cmd,
 	}
 
 	bwatch_check_scid_watches(cmd, bwatch, block, blockheight, w);
+}
+
+void bwatch_process_block_scriptpubkeys(
+	struct command *cmd,
+	const struct bitcoin_block *block,
+	u32 blockheight,
+	const struct bitcoin_blkid *blockhash,
+	struct scriptpubkey_watches *watches)
+{
+	for (size_t i = 0; i < tal_count(block->tx); i++)
+		check_scriptpubkey_watches(cmd, watches, block->tx[i],
+					 blockheight, blockhash, i);
 }
 
 /* Fire depth notifications for every active blockdepth watch.

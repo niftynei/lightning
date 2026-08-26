@@ -3,8 +3,10 @@
 #include <common/json_param.h>
 #include <common/json_parse.h>
 #include <common/json_stream.h>
+#include <inttypes.h>
 #include <plugins/bwatch/bwatch_interface.h>
 #include <plugins/bwatch/bwatch_store.h>
+#include <string.h>
 
 /*
  * ============================================================================
@@ -385,6 +387,133 @@ struct command_result *json_bwatch_add_scriptpubkey(struct command *cmd,
 	return add_watch_and_maybe_rescan(cmd, bwatch, w, *start_block);
 }
 
+/* Register a set of owner/script pairs, then scan their shared historical
+ * range once.  Parsing and validation finish before the first durable write,
+ * so malformed batches cannot leave a partial registration behind. */
+struct command_result *json_bwatch_add_scriptpubkeys(struct command *cmd,
+						     const char *buffer,
+						     const jsmntok_t *params)
+{
+	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+	const jsmntok_t *watches, *entry;
+	struct rescan_script *scripts;
+	u32 *start_block;
+	bool *rescan;
+	size_t i;
+
+	if (!param(cmd, buffer, params,
+		   p_req("watches", param_array, &watches),
+		   p_req("start_block", param_u32, &start_block),
+		   p_opt_def("rescan", param_bool, &rescan, true),
+		   NULL))
+		return command_param_failed();
+	if (watches->size == 0)
+		return command_fail_badparam(cmd, "watches", buffer, watches,
+					     "must contain at least one watch");
+
+	scripts = tal_arr(cmd, struct rescan_script, watches->size);
+	json_for_each_arr(i, entry, watches) {
+		const jsmntok_t *owner, *scriptpubkey;
+
+		if (entry->type != JSMN_OBJECT)
+			return command_fail_badparam(cmd, "watches", buffer, entry,
+						     "entries must be objects");
+		owner = json_get_member(buffer, entry, "owner");
+		scriptpubkey = json_get_member(buffer, entry, "scriptpubkey");
+		if (!owner || owner->type != JSMN_STRING)
+			return command_fail_badparam(cmd, "watches", buffer, entry,
+						     "entry requires string owner");
+		if (!scriptpubkey || scriptpubkey->type != JSMN_STRING)
+			return command_fail_badparam(
+				cmd, "watches", buffer, entry,
+				"entry requires hexadecimal scriptpubkey");
+		scripts[i].owner = json_strdup(scripts, buffer, owner);
+		scripts[i].scriptpubkey = json_tok_bin_from_hex(
+			scripts, buffer, scriptpubkey);
+		if (!scripts[i].scriptpubkey)
+			return command_fail_badparam(
+				cmd, "watches", buffer, scriptpubkey,
+				"scriptpubkey must be valid hexadecimal");
+	}
+
+	for (i = 0; i < tal_count(scripts); i++)
+		bwatch_add_watch(cmd, bwatch, WATCH_SCRIPTPUBKEY,
+				 NULL, scripts[i].scriptpubkey, NULL, NULL,
+				 *start_block, scripts[i].owner);
+
+	if (*rescan && bwatch->current_height > 0
+	    && *start_block <= bwatch->current_height) {
+		bwatch_start_scriptpubkey_rescan(cmd, scripts, *start_block,
+						 bwatch->current_height);
+		return command_still_pending(cmd);
+	}
+	return command_success(cmd, json_out_obj(cmd, NULL, NULL));
+}
+
+/* Replay an explicit logical wallet set.  A prefix is convenient for CLN's
+ * wallet/ namespace; an exact owner array lets descriptor plugins rescan only
+ * newly registered branches without replaying older owners. */
+struct command_result *json_bwatch_rescan_watch_set(struct command *cmd,
+						    const char *buffer,
+						    const jsmntok_t *params)
+{
+	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+	const char *owner_prefix = NULL;
+	const jsmntok_t *owners_tok = NULL, *owner_tok;
+	const char **owners = NULL;
+	struct rescan_selector selector;
+	u32 *start_block;
+	size_t i;
+
+	if (!param(cmd, buffer, params,
+		   p_req("start_block", param_u32, &start_block),
+		   p_opt("owner_prefix", param_string, &owner_prefix),
+		   p_opt("owners", param_array, &owners_tok),
+		   NULL))
+		return command_param_failed();
+	if (!!owner_prefix == !!owners_tok)
+		return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+				    "Specify exactly one of owner_prefix or owners");
+	if (owner_prefix) {
+		if (owner_prefix[0] == '\0')
+			return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+					    "owner_prefix must not be empty");
+		if (owner_prefix[strlen(owner_prefix) - 1] != '/')
+			return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+					    "owner_prefix must end with '/'");
+		if (streq(owner_prefix, "plugin/"))
+			return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+					    "owner_prefix 'plugin/' is too broad; select a specific plugin namespace");
+	} else {
+		if (owners_tok->size == 0)
+			return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+					    "owners must not be empty");
+		owners = tal_arr(cmd, const char *, owners_tok->size);
+		json_for_each_arr(i, owner_tok, owners_tok) {
+			if (owner_tok->type != JSMN_STRING)
+				return command_fail_badparam(
+					cmd, "owners", buffer, owner_tok,
+					"entries must be strings");
+			owners[i] = json_strdup(owners, buffer, owner_tok);
+		}
+	}
+	if (bwatch->current_height == 0)
+		return command_fail(cmd, LIGHTNINGD,
+				    "bwatch has not processed a chain tip yet");
+	/* A future birthheight needs no replay yet; the watches are already live
+	 * and normal polling will cover it. */
+	if (*start_block > bwatch->current_height)
+		return command_success(cmd, json_out_obj(cmd, NULL, NULL));
+
+	selector.owner_prefix = owner_prefix;
+	selector.owners = owners;
+	if (!bwatch_start_watch_set_rescan(cmd, &selector, *start_block,
+						  bwatch->current_height))
+		return command_fail(cmd, JSONRPC2_INVALID_PARAMS,
+				    "No watches match the requested owner set");
+	return command_still_pending(cmd);
+}
+
 /* Drop one owner from a scriptpubkey watch; the watch itself goes away
  * once the last owner is removed. */
 struct command_result *json_bwatch_del_scriptpubkey(struct command *cmd,
@@ -638,6 +767,7 @@ struct command_result *json_bwatch_status(struct command *cmd,
 					  const jsmntok_t *params)
 {
 	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+	struct rescan_state *rescan;
 	struct json_out *jout;
 	u32 lag = 0;
 
@@ -654,6 +784,10 @@ struct command_result *json_bwatch_status(struct command *cmd,
 		     bwatch->experimental ? "true" : "false");
 	json_out_add(jout, "current_height", false, "%u",
 		     bwatch->current_height);
+	json_out_add(jout, "rescans_completed_total", false, "%"PRIu64,
+		     bwatch->rescans_completed_total);
+	json_out_add(jout, "rescan_blocks_processed_total", false, "%"PRIu64,
+		     bwatch->rescan_blocks_processed_total);
 	if (bwatch->backend_height_known) {
 		json_out_add(jout, "backend_height", false, "%u",
 			     bwatch->backend_height);
@@ -677,6 +811,95 @@ struct command_result *json_bwatch_status(struct command *cmd,
 		json_out_addstr(jout, "message", bwatch->last_rescan_error);
 		json_out_end(jout, '}');
 	}
+	json_out_start(jout, "active_rescans", '[');
+	list_for_each(&bwatch->active_rescans, rescan, list) {
+		u64 total = (u64)rescan->target_block - rescan->start_block + 1;
+		u64 processed = (u64)rescan->current_block - rescan->start_block;
+		u64 owners_total = 0;
+		const u64 owners_limit = 16;
+
+		if (processed > total)
+			processed = total;
+		json_out_start(jout, NULL, '{');
+		json_out_addstr(jout, "watch_type",
+				rescan->watch_set
+				? "set"
+				: rescan->scriptpubkey_watches
+				? "scriptpubkey"
+				: rescan->watch
+				? bwatch_get_watch_type_name(rescan->watch->type)
+				: "all");
+		json_out_start(jout, "owners", '[');
+		if (rescan->watch_set) {
+			struct scriptpubkey_watches_iter sit;
+			struct outpoint_watches_iter oit;
+			struct scid_watches_iter cit;
+			struct blockdepth_watches_iter bit;
+			struct watch *w;
+
+#define ADD_RESCAN_OWNERS(table, iter) \
+			for (w = table##_first(rescan->watch_set->table, &iter); \
+			     w; w = table##_next(rescan->watch_set->table, &iter)) { \
+				for (size_t i = 0; i < tal_count(w->owners); i++) { \
+					if (owners_total < owners_limit) \
+						json_out_addstr(jout, NULL, w->owners[i]); \
+					owners_total++; \
+				} \
+			}
+			ADD_RESCAN_OWNERS(scriptpubkey_watches, sit);
+			ADD_RESCAN_OWNERS(outpoint_watches, oit);
+			ADD_RESCAN_OWNERS(scid_watches, cit);
+			ADD_RESCAN_OWNERS(blockdepth_watches, bit);
+#undef ADD_RESCAN_OWNERS
+		} else if (rescan->scriptpubkey_watches) {
+			struct scriptpubkey_watches_iter it;
+			struct watch *w;
+
+			for (w = scriptpubkey_watches_first(
+				     rescan->scriptpubkey_watches, &it);
+			     w;
+			     w = scriptpubkey_watches_next(
+				     rescan->scriptpubkey_watches, &it)) {
+				for (size_t i = 0; i < tal_count(w->owners); i++) {
+					if (owners_total < owners_limit)
+						json_out_addstr(jout, NULL,
+								w->owners[i]);
+					owners_total++;
+				}
+			}
+		} else if (rescan->watch) {
+			for (size_t i = 0;
+			     i < tal_count(rescan->watch->owners);
+			     i++) {
+				if (owners_total < owners_limit)
+					json_out_addstr(jout, NULL,
+							rescan->watch->owners[i]);
+				owners_total++;
+			}
+		}
+		json_out_end(jout, ']');
+		if (rescan->selector)
+			json_out_addstr(jout, "selector", rescan->selector);
+		json_out_add(jout, "owners_total", false, "%"PRIu64,
+			     owners_total);
+		json_out_add(jout, "owners_truncated", false, "%s",
+			     owners_total > owners_limit ? "true" : "false");
+		json_out_add(jout, "watch_count", false, "%zu",
+			     rescan->watch_count);
+		json_out_add(jout, "start_height", false, "%u",
+			     rescan->start_block);
+		json_out_add(jout, "current_height", false, "%u",
+			     rescan->current_block);
+		json_out_add(jout, "target_height", false, "%u",
+			     rescan->target_block);
+		json_out_add(jout, "blocks_processed", false, "%"PRIu64,
+			     processed);
+		json_out_add(jout, "blocks_total", false, "%"PRIu64, total);
+		json_out_add(jout, "progress_percent", false, "%"PRIu64,
+			     total == 0 ? 100 : processed * 100 / total);
+		json_out_end(jout, '}');
+	}
+	json_out_end(jout, ']');
 	json_out_end(jout, '}');
 	return command_success(cmd, jout);
 }

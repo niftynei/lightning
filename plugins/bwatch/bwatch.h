@@ -5,6 +5,7 @@
 #include <bitcoin/block.h>
 #include <bitcoin/short_channel_id.h>
 #include <bitcoin/tx.h>
+#include <ccan/list/list.h>
 #include <plugins/libplugin.h>
 #include <wire/wire.h>
 
@@ -13,6 +14,19 @@ struct scriptpubkey_watches;
 struct outpoint_watches;
 struct scid_watches;
 struct blockdepth_watches;
+
+/* One owner/script pair supplied to a batched historical script scan. */
+struct rescan_script {
+	const char *owner;
+	const u8 *scriptpubkey;
+};
+
+/* Select a logical wallet/watch set without exposing unrelated owners to
+ * replay notifications.  Exactly one selector form is populated. */
+struct rescan_selector {
+	const char *owner_prefix;
+	const char **owners;
+};
 
 /* Timer handle returned by global_timer; defined in libplugin. */
 struct plugin_timer;
@@ -84,6 +98,14 @@ struct bwatch {
 	char *last_rescan_error;
 	u32 last_rescan_error_height;
 	u32 last_rescan_target_height;
+	/* Monotonic process-lifetime counters make completed historical work
+	 * observable even after its active cursor has disappeared. */
+	u64 rescans_completed_total;
+	u64 rescan_blocks_processed_total;
+
+	/* Historical rescans can overlap when multiple add-watch RPCs are in
+	 * flight.  Keep each cursor visible to bwatch-status. */
+	struct list_head active_rescans;
 };
 
 /* Helper: get last block_history (or NULL) */
@@ -104,7 +126,17 @@ void bwatch_remove_tip(struct command *cmd, struct bwatch *bwatch);
 
 /* Per-rescan cursor: which block we're on and how far to go. */
 struct rescan_state {
+	struct list_node list;
+	struct bwatch *bwatch;
 	const struct watch *watch;	/* NULL = rescan all watches, non-NULL = single watch */
+	/* A filtered snapshot of every watch type selected by owner. */
+	struct bwatch *watch_set;
+	const char *selector;
+	/* Non-NULL for a batched script-only rescan.  Entries are snapshots
+	 * containing only the owners named by the batch request. */
+	struct scriptpubkey_watches *scriptpubkey_watches;
+	size_t watch_count;
+	u32 start_block;		/* First block in the inclusive range */
 	u32 current_block;		/* Next block to fetch */
 	u32 target_block;		/* Stop after this block */
 };
@@ -116,5 +148,18 @@ void bwatch_start_rescan(struct command *cmd,
 			 const struct watch *w,
 			 u32 start_block,
 			 u32 target_block);
+
+/* Replay one historical range once for a set of script watches. */
+void bwatch_start_scriptpubkey_rescan(struct command *cmd,
+				      const struct rescan_script *scripts,
+				      u32 start_block,
+				      u32 target_block);
+
+/* Replay one historical range against only the owners selected here.  Returns
+ * false without starting when the selector currently matches no watches. */
+bool bwatch_start_watch_set_rescan(struct command *cmd,
+				   const struct rescan_selector *selector,
+				   u32 start_block,
+				   u32 target_block);
 
 #endif /* LIGHTNING_PLUGINS_BWATCH_BWATCH_H */

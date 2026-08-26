@@ -12,6 +12,7 @@
 #include <plugins/bwatch/bwatch_store.h>
 #include <plugins/bwatch/bwatch_wiregen.h>
 #include <stdarg.h>
+#include <stdlib.h>
 
 struct bwatch *bwatch_of(struct plugin *plugin)
 {
@@ -453,8 +454,19 @@ static struct command_result *rescan_block_done(struct command *cmd,
 
 	/* rescan->watch is forwarded so the scanner only checks that one
 	 * watch (or all watches when watch == NULL). */
-	bwatch_process_block_txs(cmd, bwatch_of(cmd->plugin), block,
-				 rescan->current_block, &blockhash, rescan->watch);
+	if (rescan->watch_set) {
+		bwatch_process_block_txs(cmd, rescan->watch_set, block,
+					 rescan->current_block, &blockhash, NULL);
+		bwatch_check_blockdepth_watches(cmd, rescan->watch_set,
+					  rescan->current_block);
+	} else if (rescan->scriptpubkey_watches)
+		bwatch_process_block_scriptpubkeys(cmd, block,
+						rescan->current_block, &blockhash,
+						rescan->scriptpubkey_watches);
+	else
+		bwatch_process_block_txs(cmd, bwatch_of(cmd->plugin), block,
+					 rescan->current_block, &blockhash,
+					 rescan->watch);
 
 	/* Advance the cursor; if we still have blocks to scan, fetch the
 	 * next one and chain back into rescan_block_done. */
@@ -462,8 +474,43 @@ static struct command_result *rescan_block_done(struct command *cmd,
 		return fetch_block_rescan(cmd, rescan->current_block,
 					  rescan_block_done, rescan);
 
+	rescan->bwatch->rescans_completed_total++;
+	rescan->bwatch->rescan_blocks_processed_total
+		+= (u64)rescan->target_block - rescan->start_block + 1;
 	plugin_log(cmd->plugin, LOG_INFORM, "Rescan complete");
 	return rescan_complete(cmd);
+}
+
+static void destroy_rescan(struct rescan_state *rescan)
+{
+	list_del(&rescan->list);
+}
+
+static struct rescan_state *new_rescan(struct command *cmd,
+				       u32 start_block,
+				       u32 target_block)
+{
+	struct rescan_state *rescan = tal(cmd, struct rescan_state);
+
+	rescan->bwatch = bwatch_of(cmd->plugin);
+	rescan->watch = NULL;
+	rescan->watch_set = NULL;
+	rescan->selector = NULL;
+	rescan->scriptpubkey_watches = NULL;
+	rescan->watch_count = 0;
+	rescan->start_block = start_block;
+	rescan->current_block = start_block;
+	rescan->target_block = target_block;
+	list_add_tail(&rescan->bwatch->active_rescans, &rescan->list);
+	tal_add_destructor(rescan, destroy_rescan);
+	return rescan;
+}
+
+static void start_rescan_fetch(struct command *cmd,
+			       struct rescan_state *rescan)
+{
+	fetch_block_rescan(cmd, rescan->current_block,
+			   rescan_block_done, rescan);
 }
 
 void bwatch_start_rescan(struct command *cmd,
@@ -485,17 +532,223 @@ void bwatch_start_rescan(struct command *cmd,
 	}
 
 	/* Owned by `cmd` so it lives across the async chain and gets
-	 * freed automatically when the command completes. */
-	rescan = tal(cmd, struct rescan_state);
+	 * freed automatically when the command completes.  The destructor
+	 * removes it from the status list on success, failure, or disconnect. */
+	rescan = new_rescan(cmd, start_block, target_block);
 	rescan->watch = w;
-	rescan->current_block = start_block;
-	rescan->target_block = target_block;
+	rescan->watch_count = w ? 1 : 0;
 
 	/* Fire the first getrawblockbyheight; each response runs
 	 * rescan_block_done, which fetches the next block until we
 	 * pass target_block. */
-	fetch_block_rescan(cmd, rescan->current_block,
-			   rescan_block_done, rescan);
+	start_rescan_fetch(cmd, rescan);
+}
+
+void bwatch_start_scriptpubkey_rescan(struct command *cmd,
+				      const struct rescan_script *scripts,
+				      u32 start_block,
+				      u32 target_block)
+{
+	struct rescan_state *rescan;
+
+	plugin_log(cmd->plugin, LOG_INFORM,
+		   "Starting batched rescan for %zu scriptpubkey watches: blocks %u-%u",
+		   tal_count(scripts), start_block, target_block);
+	rescan = new_rescan(cmd, start_block, target_block);
+	rescan->scriptpubkey_watches
+		= new_htable(rescan, scriptpubkey_watches);
+
+	for (size_t i = 0; i < tal_count(scripts); i++) {
+		struct scriptpubkey key = {
+			.script = scripts[i].scriptpubkey,
+			.len = tal_bytelen(scripts[i].scriptpubkey),
+		};
+		struct watch *w = scriptpubkey_watches_get(
+			rescan->scriptpubkey_watches, &key);
+
+		if (w) {
+			bool found = false;
+			for (size_t j = 0; j < tal_count(w->owners); j++) {
+				if (streq(w->owners[j], scripts[i].owner)) {
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				tal_arr_expand(&w->owners,
+					       tal_strdup(w->owners,
+							  scripts[i].owner));
+			continue;
+		}
+
+		w = tal(rescan, struct watch);
+		w->type = WATCH_SCRIPTPUBKEY;
+		w->start_block = start_block;
+		w->key.scriptpubkey.len = key.len;
+		w->key.scriptpubkey.script = tal_dup_arr(
+			w, u8, key.script, key.len, 0);
+		w->owners = tal_arr(w, wirestring *, 1);
+		w->owners[0] = tal_strdup(w->owners, scripts[i].owner);
+		scriptpubkey_watches_add(rescan->scriptpubkey_watches, w);
+		rescan->watch_count++;
+	}
+
+	start_rescan_fetch(cmd, rescan);
+}
+
+static int owner_cmp(const void *a, const void *b)
+{
+	const char *const *owner_a = a;
+	const char *const *owner_b = b;
+	return strcmp(*owner_a, *owner_b);
+}
+
+static bool owner_is_selected(const char *owner,
+			      const struct rescan_selector *selector)
+{
+	if (selector->owner_prefix)
+		return strstarts(owner, selector->owner_prefix);
+
+	return bsearch(&owner, selector->owners, tal_count(selector->owners),
+		       sizeof(*selector->owners), owner_cmp) != NULL;
+}
+
+static struct watch *clone_selected_watch(const tal_t *ctx,
+					  const struct watch *source,
+					  const struct rescan_selector *selector,
+					  u32 start_block)
+{
+	struct watch *copy = tal(ctx, struct watch);
+
+	copy->owners = tal_arr(copy, wirestring *, 0);
+	for (size_t i = 0; i < tal_count(source->owners); i++) {
+		if (owner_is_selected(source->owners[i], selector))
+			tal_arr_expand(&copy->owners,
+				       tal_strdup(copy->owners, source->owners[i]));
+	}
+	if (tal_count(copy->owners) == 0)
+		return tal_free(copy);
+
+	copy->type = source->type;
+	/* A set rescan's requested lower bound supersedes UINT32_MAX perennial
+	 * registration.  Blockdepth's start is also its confirmation anchor. */
+	copy->start_block = source->type == WATCH_BLOCKDEPTH
+		? source->start_block : start_block;
+	switch (source->type) {
+	case WATCH_SCRIPTPUBKEY:
+		copy->key.scriptpubkey.len = source->key.scriptpubkey.len;
+		copy->key.scriptpubkey.script = tal_dup_arr(
+			copy, u8, source->key.scriptpubkey.script,
+			source->key.scriptpubkey.len, 0);
+		break;
+	case WATCH_OUTPOINT:
+		copy->key.outpoint = source->key.outpoint;
+		break;
+	case WATCH_SCID:
+		copy->key.scid = source->key.scid;
+		break;
+	case WATCH_BLOCKDEPTH:
+		break;
+	}
+	return copy;
+}
+
+static size_t snapshot_selected_watches(struct rescan_state *rescan,
+					const struct rescan_selector *selector,
+					u32 start_block)
+{
+	struct bwatch *source = rescan->bwatch;
+	struct watch *w, *copy;
+	size_t count = 0;
+
+	rescan->watch_set = talz(rescan, struct bwatch);
+	rescan->watch_set->scriptpubkey_watches
+		= new_htable(rescan->watch_set, scriptpubkey_watches);
+	rescan->watch_set->outpoint_watches
+		= new_htable(rescan->watch_set, outpoint_watches);
+	rescan->watch_set->scid_watches
+		= new_htable(rescan->watch_set, scid_watches);
+	rescan->watch_set->blockdepth_watches
+		= new_htable(rescan->watch_set, blockdepth_watches);
+
+	struct scriptpubkey_watches_iter sit;
+	for (w = scriptpubkey_watches_first(source->scriptpubkey_watches, &sit);
+	     w; w = scriptpubkey_watches_next(source->scriptpubkey_watches, &sit)) {
+		copy = clone_selected_watch(rescan->watch_set, w, selector,
+					    start_block);
+		if (copy) {
+			bwatch_add_watch_to_hash(rescan->watch_set, copy);
+			count++;
+		}
+	}
+
+	struct outpoint_watches_iter oit;
+	for (w = outpoint_watches_first(source->outpoint_watches, &oit);
+	     w; w = outpoint_watches_next(source->outpoint_watches, &oit)) {
+		copy = clone_selected_watch(rescan->watch_set, w, selector,
+					    start_block);
+		if (copy) {
+			bwatch_add_watch_to_hash(rescan->watch_set, copy);
+			count++;
+		}
+	}
+
+	struct scid_watches_iter cit;
+	for (w = scid_watches_first(source->scid_watches, &cit);
+	     w; w = scid_watches_next(source->scid_watches, &cit)) {
+		copy = clone_selected_watch(rescan->watch_set, w, selector,
+					    start_block);
+		if (copy) {
+			bwatch_add_watch_to_hash(rescan->watch_set, copy);
+			count++;
+		}
+	}
+
+	struct blockdepth_watches_iter bit;
+	for (w = blockdepth_watches_first(source->blockdepth_watches, &bit);
+	     w; w = blockdepth_watches_next(source->blockdepth_watches, &bit)) {
+		copy = clone_selected_watch(rescan->watch_set, w, selector,
+					    start_block);
+		if (copy) {
+			bwatch_add_watch_to_hash(rescan->watch_set, copy);
+			count++;
+		}
+	}
+
+	return count;
+}
+
+bool bwatch_start_watch_set_rescan(struct command *cmd,
+				   const struct rescan_selector *selector,
+				   u32 start_block,
+				   u32 target_block)
+{
+	struct rescan_state *rescan = new_rescan(cmd, start_block, target_block);
+	struct rescan_selector sorted = *selector;
+
+	if (selector->owners) {
+		sorted.owners = tal_dup_arr(rescan, const char *, selector->owners,
+					    tal_count(selector->owners), 0);
+		qsort(sorted.owners, tal_count(sorted.owners),
+		      sizeof(*sorted.owners), owner_cmp);
+		selector = &sorted;
+	}
+
+	rescan->watch_count = snapshot_selected_watches(rescan, selector,
+						       start_block);
+	if (rescan->watch_count == 0) {
+		tal_free(rescan);
+		return false;
+	}
+	rescan->selector = selector->owner_prefix
+		? tal_fmt(rescan, "prefix:%s", selector->owner_prefix)
+		: tal_fmt(rescan, "owners:%zu", tal_count(selector->owners));
+	plugin_log(cmd->plugin, LOG_INFORM,
+		   "Starting watch-set rescan for %s (%zu watches): blocks %u-%u",
+		   rescan->selector, rescan->watch_count,
+		   start_block, target_block);
+	start_rescan_fetch(cmd, rescan);
+	return true;
 }
 
 static const char *init(struct command *cmd,
@@ -539,6 +792,8 @@ static const char *init(struct command *cmd,
 
 static const struct plugin_command commands[] = {
 	{ "addscriptpubkeywatch", json_bwatch_add_scriptpubkey },
+	{ "addscriptpubkeywatches", json_bwatch_add_scriptpubkeys },
+	{ "rescanwatchset",       json_bwatch_rescan_watch_set },
 	{ "addoutpointwatch",     json_bwatch_add_outpoint     },
 	{ "addscidwatch",         json_bwatch_add_scid         },
 	{ "addblockdepthwatch",   json_bwatch_add_blockdepth   },
@@ -561,6 +816,9 @@ int main(int argc, char *argv[])
 	bwatch->backend_height_known = false;
 	bwatch->last_poll_error = NULL;
 	bwatch->last_rescan_error = NULL;
+	bwatch->rescans_completed_total = 0;
+	bwatch->rescan_blocks_processed_total = 0;
+	list_head_init(&bwatch->active_rescans);
 
 	plugin_main(argv, init, take(bwatch), PLUGIN_RESTARTABLE, true, NULL,
 		    commands, ARRAY_SIZE(commands),

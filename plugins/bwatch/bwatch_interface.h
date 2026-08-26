@@ -38,6 +38,12 @@ struct command_result *bwatch_send_chaininfo(struct command *cmd, void *unused);
 struct command_result *json_bwatch_add_scriptpubkey(struct command *cmd,
 						    const char *buffer,
 						    const jsmntok_t *params);
+struct command_result *json_bwatch_add_scriptpubkeys(struct command *cmd,
+						     const char *buffer,
+						     const jsmntok_t *params);
+struct command_result *json_bwatch_rescan_watch_set(struct command *cmd,
+						    const char *buffer,
+						    const jsmntok_t *params);
 struct command_result *json_bwatch_del_scriptpubkey(struct command *cmd,
 						    const char *buffer,
 						    const jsmntok_t *params);

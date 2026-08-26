@@ -15,6 +15,16 @@ void bwatch_process_block_txs(struct command *cmd,
 			      const struct bitcoin_blkid *blockhash,
 			      const struct watch *w);
 
+/* Scan only the script watches in `watches`.  Used by batch registration so
+ * one block pass covers the entire descriptor lookahead without replaying
+ * events for unrelated globally registered watches. */
+void bwatch_process_block_scriptpubkeys(
+	struct command *cmd,
+	const struct bitcoin_block *block,
+	u32 blockheight,
+	const struct bitcoin_blkid *blockhash,
+	struct scriptpubkey_watches *watches);
+
 /* Fire watch_found for scid watches anchored to this block.
  * w==NULL walks every scid watch (normal polling); w non-NULL
  * fires only that watch (single-watch rescan). */
