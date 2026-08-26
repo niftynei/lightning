@@ -5486,6 +5486,243 @@ def test_bwatch_rescan_scriptpubkey(node_factory, bitcoind):
     l1.daemon.wait_for_log(r'Rescan complete')
 
 
+def test_bwatch_status_reports_rescan_progress(node_factory, executor):
+    """bwatch-status exposes each in-flight historical rescan cursor."""
+    l1 = node_factory.get_node(options=BWATCH_OPTS)
+    wait_bwatch_caught_up(l1)
+
+    current_height = l1.rpc.getinfo()['blockheight']
+    start_height = current_height - 20
+    owner = 'plugin/test/rescan-progress'
+    test_spk = "76a914" + "33" * 20 + "88ac"
+
+    def slow_historical_fetch(req):
+        import time
+        height = int(req['params'][0])
+        if start_height <= height <= current_height:
+            time.sleep(0.05)
+        return None
+
+    l1.daemon.rpcproxy.mock_rpc('getblockhash', slow_historical_fetch)
+    try:
+        registration = executor.submit(
+            l1.rpc.addscriptpubkeywatch,
+            owner=owner,
+            scriptpubkey=test_spk,
+            start_block=start_height,
+        )
+        l1.daemon.wait_for_log(
+            rf'Starting rescan for scriptpubkey watch: blocks '
+            rf'{start_height}-{current_height}'
+        )
+
+        active = only_one(l1.rpc.call('bwatch-status')['active_rescans'])
+        assert active['watch_type'] == 'scriptpubkey'
+        assert active['owners'] == [owner]
+        assert active['start_height'] == start_height
+        assert start_height <= active['current_height'] <= current_height
+        assert active['target_height'] == current_height
+        assert active['blocks_processed'] == (
+            active['current_height'] - start_height
+        )
+        assert active['blocks_total'] == current_height - start_height + 1
+        assert 0 <= active['progress_percent'] < 100
+        assert active['watch_count'] == 1
+        assert active['owners_total'] == 1
+        assert active['owners_truncated'] is False
+
+        registration.result(timeout=TIMEOUT)
+        assert l1.rpc.call('bwatch-status')['active_rescans'] == []
+    finally:
+        l1.daemon.rpcproxy.mock_rpc('getblockhash', None)
+
+
+def test_bwatch_batch_scriptpubkeys_share_one_rescan(node_factory, executor):
+    """All batch watches are durable before one shared historical scan."""
+    from collections import Counter
+    import time
+
+    l1 = node_factory.get_node(options=BWATCH_OPTS)
+    wait_bwatch_caught_up(l1)
+    current_height = l1.rpc.getinfo()['blockheight']
+    start_height = current_height - 20
+    status_before = l1.rpc.call('bwatch-status')
+    batch_size = 64
+    owners = [f'plugin/test/batch/{index}' for index in range(batch_size)]
+    watches = [
+        {
+            'owner': owner,
+            'scriptpubkey': "76a914" + f"{index + 1:02x}" * 20 + "88ac",
+        }
+        for index, owner in enumerate(owners)
+    ]
+    fetched = []
+
+    def slow_historical_fetch(req):
+        height = int(req['params'][0])
+        if start_height <= height <= current_height:
+            fetched.append(height)
+            time.sleep(0.05)
+        return None
+
+    l1.daemon.rpcproxy.mock_rpc('getblockhash', slow_historical_fetch)
+    try:
+        registration = executor.submit(
+            l1.rpc.addscriptpubkeywatches,
+            watches=watches,
+            start_block=start_height,
+        )
+        l1.daemon.wait_for_log(
+            rf'Starting batched rescan for {batch_size} '
+            rf'scriptpubkey watches: blocks '
+            rf'{start_height}-{current_height}'
+        )
+
+        registered = {
+            owner
+            for watch in l1.rpc.listwatch()['watches']
+            for owner in watch['owners']
+            if owner.startswith('plugin/test/batch/')
+        }
+        assert registered == set(owners)
+        active = only_one(l1.rpc.call('bwatch-status')['active_rescans'])
+        assert active['watch_type'] == 'scriptpubkey'
+        assert active['watch_count'] == batch_size
+        assert active['owners_total'] == batch_size
+        assert len(active['owners']) == 16
+        assert active['owners_truncated'] is True
+        assert set(active['owners']).issubset(owners)
+
+        registration.result(timeout=TIMEOUT)
+        assert l1.rpc.call('bwatch-status')['active_rescans'] == []
+    finally:
+        l1.daemon.rpcproxy.mock_rpc('getblockhash', None)
+
+    counts = Counter(fetched)
+    assert set(counts) == set(range(start_height, current_height + 1))
+    assert all(count == 1 for count in counts.values())
+    status_after = l1.rpc.call('bwatch-status')
+    assert status_after['rescans_completed_total'] == (
+        status_before['rescans_completed_total'] + 1
+    )
+    assert status_after['rescan_blocks_processed_total'] == (
+        status_before['rescan_blocks_processed_total']
+        + current_height - start_height + 1
+    )
+
+
+def test_bwatch_batch_rejects_malformed_entry_atomically(node_factory):
+    """A malformed batch is rejected before any watch is persisted."""
+    l1 = node_factory.get_node(options=BWATCH_OPTS)
+    wait_bwatch_caught_up(l1)
+    owner = 'plugin/test/malformed-batch'
+
+    with pytest.raises(RpcError, match='valid hexadecimal'):
+        l1.rpc.addscriptpubkeywatches(
+            watches=[
+                {
+                    'owner': owner,
+                    'scriptpubkey': "76a914" + "44" * 20 + "88ac",
+                },
+                {'owner': f'{owner}/bad', 'scriptpubkey': 'not-hex'},
+            ],
+            start_block=l1.rpc.getinfo()['blockheight'],
+        )
+
+    assert not any(
+        watched_owner.startswith(owner)
+        for watch in l1.rpc.listwatch()['watches']
+        for watched_owner in watch['owners']
+    )
+
+
+def test_bwatch_rescan_watch_set_is_owner_scoped(
+        node_factory, executor, bitcoind):
+    """A logical wallet set shares one scan and excludes unrelated owners."""
+    from collections import Counter
+    import time
+
+    plugin_path = os.path.join(
+        os.getcwd(), 'tests/plugins/bwatch_notifications.py'
+    )
+    opts = dict(BWATCH_OPTS)
+    opts['plugin'] = plugin_path
+    l1 = node_factory.get_node(options=opts)
+    wait_bwatch_caught_up(l1)
+
+    address = bitcoind.rpc.getnewaddress()
+    shared_spk = bitcoind.rpc.getaddressinfo(address)['scriptPubKey']
+    bitcoind.rpc.sendtoaddress(address, 0.01)
+    historical_height = bitcoind.generate_block(1)[0]
+    historical_height = bitcoind.rpc.getblockheader(historical_height)['height']
+    bitcoind.generate_block(20)
+    wait_bwatch_caught_up(l1)
+    current_height = l1.rpc.getinfo()['blockheight']
+    start_height = historical_height
+    second_spk = "76a914" + "52" * 20 + "88ac"
+    selected = ['plugin/test/wallet/0', 'plugin/test/wallet/1']
+    unrelated = 'plugin/test/unrelated/0'
+
+    l1.rpc.addscriptpubkeywatches(
+        watches=[
+            {'owner': selected[0], 'scriptpubkey': shared_spk},
+            {'owner': selected[1], 'scriptpubkey': second_spk},
+            {'owner': unrelated, 'scriptpubkey': shared_spk},
+        ],
+        start_block=start_height,
+        rescan=False,
+    )
+
+    with pytest.raises(RpcError, match="'plugin/' is too broad"):
+        l1.rpc.rescanwatchset(
+            owner_prefix='plugin/',
+            start_block=start_height,
+        )
+
+    fetched = []
+
+    def slow_historical_fetch(req):
+        height = int(req['params'][0])
+        if start_height <= height <= current_height:
+            fetched.append(height)
+            time.sleep(0.05)
+        return None
+
+    l1.daemon.rpcproxy.mock_rpc('getblockhash', slow_historical_fetch)
+    try:
+        rescan = executor.submit(
+            l1.rpc.rescanwatchset,
+            owner_prefix='plugin/test/wallet/',
+            start_block=start_height,
+        )
+        l1.daemon.wait_for_log(
+            rf'Starting watch-set rescan for prefix:plugin/test/wallet/ '
+            rf'\(2 watches\): blocks {start_height}-{current_height}'
+        )
+
+        active = only_one(l1.rpc.call('bwatch-status')['active_rescans'])
+        assert active['watch_type'] == 'set'
+        assert active['selector'] == 'prefix:plugin/test/wallet/'
+        assert active['watch_count'] == 2
+        assert set(active['owners']) == set(selected)
+        assert unrelated not in active['owners']
+
+        rescan.result(timeout=TIMEOUT)
+        matches = [
+            event for event in l1.rpc.listbwatchevents()['events']
+            if event['type'] == 'match'
+            and event['blockheight'] == historical_height
+        ]
+        assert any(event['owner'] == selected[0] for event in matches)
+        assert not any(event['owner'] == unrelated for event in matches)
+    finally:
+        l1.daemon.rpcproxy.mock_rpc('getblockhash', None)
+
+    counts = Counter(fetched)
+    assert set(counts) == set(range(start_height, current_height + 1))
+    assert all(count == 1 for count in counts.values())
+
+
 def test_bwatch_incomplete_rescan_fails(node_factory):
     """A missing historical block must fail registration at its exact height."""
     l1 = node_factory.get_node(options=BWATCH_OPTS)
@@ -5529,6 +5766,7 @@ def test_bwatch_incomplete_rescan_fails(node_factory):
     status = l1.rpc.call('bwatch-status')
     assert status['last_rescan_error']['height'] == missing_height
     assert status['last_rescan_error']['target_height'] == current_height
+    assert status['active_rescans'] == []
     l1.daemon.wait_for_log(rf'Historical rescan failed at block {missing_height}')
 
 
