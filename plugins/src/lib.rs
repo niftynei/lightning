@@ -209,7 +209,7 @@ where
             hookname.to_string(),
             Hook {
                 name: hookname.to_string(),
-                callback: Box::new(move |p, r| Box::pin(callback(p, r))),
+                callback: Box::new(move |p, _ctx, r| Box::pin(callback(p, r))),
                 before: Vec::new(),
                 after: Vec::new(),
                 filters: None,
@@ -244,7 +244,7 @@ where
             hookname.clone(),
             Hook {
                 name: hookname.clone(),
-                callback: Box::new(move |p, r| {
+                callback: Box::new(move |p, _ctx, r| {
                     let typed_req = serde_json::from_value(r).unwrap_or_else(|e| {
                         let error = format!(
                             "cln-plugin: hook '{hookname}' received a request that doesn't match \
@@ -286,7 +286,7 @@ where
                 name: name.to_string(),
                 description: description.to_string(),
                 usage: String::default(),
-                callback: Box::new(move |p, r| Box::pin(callback(p, r))),
+                callback: Box::new(move |p, _ctx, r| Box::pin(callback(p, r))),
             },
         );
         self
@@ -305,7 +305,9 @@ where
         C: Fn(Plugin<S>, Request) -> F + 'static,
         F: Future<Output = Response> + Send + 'static,
     {
-        self.setconfig_callback = Some(Box::new(move |p, r| Box::pin(setconfig_callback(p, r))));
+        self.setconfig_callback = Some(Box::new(move |p, _ctx, r| {
+            Box::pin(setconfig_callback(p, r))
+        }));
         self
     }
 
@@ -543,7 +545,7 @@ where
     {
         Self {
             name: name.to_string(),
-            callback: Box::new(move |p, r| Box::pin(callback(p, r))),
+            callback: Box::new(move |p, _ctx, r| Box::pin(callback(p, r))),
             before: Vec::new(),
             after: Vec::new(),
             filters: None,
@@ -561,7 +563,7 @@ where
         let hookname = name.to_string();
         Self {
             name: hookname.clone(),
-            callback: Box::new(move |p, r| {
+            callback: Box::new(move |p, _ctx, r| {
                 let typed_req = serde_json::from_value(r).unwrap_or_else(|e| {
                     let error = format!(
                         "cln-plugin: hook '{hookname}' received a request that doesn't match \
@@ -630,7 +632,23 @@ where
     {
         Self {
             name: name.to_string(),
-            callback: Box::new(move |p, r| Box::pin(callback(p, r))),
+            callback: Box::new(move |p, _ctx, r| Box::pin(callback(p, r))),
+            usage: None,
+            description: None,
+        }
+    }
+
+    /// Construct an RPC method whose callback can send request-scoped
+    /// progress notifications to its caller.
+    pub fn new_with_context<C, F>(name: &str, callback: C) -> Self
+    where
+        C: Send + Sync + 'static,
+        C: Fn(Plugin<S>, RequestContext, Request) -> F + 'static,
+        F: Future<Output = Response> + Send + 'static,
+    {
+        Self {
+            name: name.to_string(),
+            callback: Box::new(move |p, ctx, r| Box::pin(callback(p, ctx, r))),
             usage: None,
             description: None,
         }
@@ -660,8 +678,11 @@ where
 // of parentheses.
 type Request = serde_json::Value;
 type Response = Result<serde_json::Value, Error>;
-type AsyncCallback<S> =
-    Box<dyn Fn(Plugin<S>, Request) -> Pin<Box<dyn Future<Output = Response> + Send>> + Send + Sync>;
+type AsyncCallback<S> = Box<
+    dyn Fn(Plugin<S>, RequestContext, Request) -> Pin<Box<dyn Future<Output = Response> + Send>>
+        + Send
+        + Sync,
+>;
 type AsyncNotificationCallback<S> = Box<
     dyn Fn(Plugin<S>, Request) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send>>
         + Send
@@ -689,6 +710,60 @@ where
     name: String,
     description: Option<String>,
     usage: Option<String>,
+}
+
+/// The request-scoped channel for notifications sent while an RPC is running.
+///
+/// Unlike custom plugin notifications, progress notifications are routed only
+/// to the client which invoked this RPC. CLN uses the original plugin request
+/// id to make that association.
+#[derive(Clone)]
+pub struct RequestContext {
+    id: serde_json::Value,
+    sender: tokio::sync::mpsc::Sender<serde_json::Value>,
+}
+
+impl RequestContext {
+    /// Report zero-indexed progress to the client which invoked this RPC.
+    ///
+    /// `num` must be less than `total`. If `stage` is supplied, its number is
+    /// also zero-indexed and must be less than the stage total.
+    pub async fn progress(
+        &self,
+        num: u32,
+        total: u32,
+        stage: Option<(u32, u32)>,
+    ) -> Result<(), Error> {
+        if total == 0 || num >= total {
+            return Err(anyhow!(
+                "progress num ({num}) must be less than non-zero total ({total})"
+            ));
+        }
+        if let Some((stage_num, stage_total)) = stage {
+            if stage_total == 0 || stage_num >= stage_total {
+                return Err(anyhow!(
+                    "progress stage num ({stage_num}) must be less than non-zero total ({stage_total})"
+                ));
+            }
+        }
+
+        let mut params = json!({
+            "id": self.id,
+            "num": num,
+            "total": total,
+        });
+        if let Some((num, total)) = stage {
+            params["stage"] = json!({ "num": num, "total": total });
+        }
+        self.sender
+            .send(json!({
+                "jsonrpc": "2.0",
+                "method": "progress",
+                "params": params,
+            }))
+            .await
+            .context("sending request progress notification")
+    }
 }
 
 struct Subscription<S>
@@ -955,7 +1030,11 @@ where
                             .clone();
 
                         let plugin = plugin.clone();
-                        let call = callback(plugin.clone(), params);
+                        let context = RequestContext {
+                            id: id.clone(),
+                            sender: plugin.sender.clone(),
+                        };
+                        let call = callback(plugin.clone(), context, params);
 
                         tokio::spawn(async move {
                             match call.await {
@@ -1158,5 +1237,42 @@ mod test {
             "failed to load config: config file missing: No such file or directory (os error 2)"
         );
         assert_eq!(rpc_error.data, None);
+    }
+
+    #[tokio::test]
+    async fn request_context_sends_routable_progress_notification() {
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        let context = RequestContext {
+            id: json!("plugin-request-7"),
+            sender,
+        };
+
+        context.progress(41, 100, Some((1, 3))).await.unwrap();
+
+        assert_eq!(
+            receiver.recv().await.unwrap(),
+            json!({
+                "jsonrpc": "2.0",
+                "method": "progress",
+                "params": {
+                    "id": "plugin-request-7",
+                    "num": 41,
+                    "total": 100,
+                    "stage": { "num": 1, "total": 3 },
+                },
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn request_context_rejects_invalid_progress() {
+        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+        let context = RequestContext {
+            id: json!(1),
+            sender,
+        };
+
+        assert!(context.progress(10, 10, None).await.is_err());
+        assert!(context.progress(0, 10, Some((2, 2))).await.is_err());
     }
 }
