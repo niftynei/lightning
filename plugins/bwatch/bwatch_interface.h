@@ -43,7 +43,10 @@ struct command_result *json_bwatch_add_scriptpubkeys(struct command *cmd,
 						     const jsmntok_t *params);
 struct command_result *json_bwatch_rescan_watch_set(struct command *cmd,
 						    const char *buffer,
-						    const jsmntok_t *params);
+						     const jsmntok_t *params);
+struct command_result *json_bwatch_scan_watch_set(struct command *cmd,
+						  const char *buffer,
+						  const jsmntok_t *params);
 struct command_result *json_bwatch_del_scriptpubkey(struct command *cmd,
 						    const char *buffer,
 						    const jsmntok_t *params);
