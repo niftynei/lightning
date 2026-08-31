@@ -1,6 +1,7 @@
 #include "config.h"
 #include <bitcoin/tx.h>
 #include <ccan/mem/mem.h>
+#include <ccan/tal/str/str.h>
 #include <common/utils.h>
 #include <plugins/bwatch/bwatch_interface.h>
 #include <plugins/bwatch/bwatch_scanner.h>
@@ -253,6 +254,125 @@ void bwatch_process_block_scriptpubkeys(
 	for (size_t i = 0; i < tal_count(block->tx); i++)
 		check_scriptpubkey_watches(cmd, watches, block->tx[i],
 					 blockheight, blockhash, i);
+}
+
+static void collect_wallet_match(struct rescan_state *rescan,
+				 enum watch_type type,
+				 const char *owner,
+				 const struct bitcoin_tx *tx,
+				 u32 blockheight,
+				 u32 timestamp,
+				 u32 index)
+{
+	struct rescan_match match = {
+		.type = type,
+		.owner = tal_strdup(rescan, owner),
+		.blockheight = blockheight,
+		.timestamp = timestamp,
+		.index = index,
+		.tx = linearize_tx(rescan, tx),
+	};
+	tal_arr_expand(&rescan->matches, match);
+	if (type == WATCH_SCRIPTPUBKEY)
+		rescan->script_matches_found++;
+	else if (type == WATCH_OUTPOINT)
+		rescan->outpoint_matches_found++;
+}
+
+static bool watch_has_owner(const struct watch *w, const char *owner)
+{
+	for (size_t i = 0; i < tal_count(w->owners); i++) {
+		if (streq(w->owners[i], owner))
+			return true;
+	}
+	return false;
+}
+
+/* Add a just-discovered output to the transient scan set.  This deliberately
+ * does not touch bwatch's durable table: scanwatchset is an atomic discovery
+ * operation and its caller decides which resulting UTXOs should remain live. */
+static void follow_wallet_outpoint(struct rescan_state *rescan,
+				   const struct bitcoin_outpoint *outpoint,
+				   const struct watch *script_watch,
+				   u32 blockheight)
+{
+	struct watch *w = outpoint_watches_get(
+		rescan->watch_set->outpoint_watches, outpoint);
+
+	if (w) {
+		for (size_t i = 0; i < tal_count(script_watch->owners); i++) {
+			if (!watch_has_owner(w, script_watch->owners[i]))
+				tal_arr_expand(&w->owners,
+					       tal_strdup(w->owners,
+							  script_watch->owners[i]));
+		}
+		return;
+	}
+
+	w = tal(rescan->watch_set, struct watch);
+	w->type = WATCH_OUTPOINT;
+	w->start_block = blockheight;
+	w->key.outpoint = *outpoint;
+	w->owners = tal_arr(w, wirestring *, tal_count(script_watch->owners));
+	for (size_t i = 0; i < tal_count(script_watch->owners); i++)
+		w->owners[i] = tal_strdup(w->owners, script_watch->owners[i]);
+	bwatch_add_watch_to_hash(rescan->watch_set, w);
+	rescan->watch_count++;
+	rescan->outpoints_followed++;
+}
+
+void bwatch_process_block_wallet_scan(struct command *cmd UNUSED,
+				      struct rescan_state *rescan,
+				      const struct bitcoin_block *block,
+				      u32 blockheight,
+				      const struct bitcoin_blkid *blockhash UNUSED)
+{
+	u32 timestamp = le32_to_cpu(block->hdr.timestamp);
+
+	/* Blocks are transaction ordered.  Once an output is found, inserting it
+	 * before the next transaction is examined is sufficient to catch every
+	 * possible later spend, including a child transaction in this block. */
+	for (size_t txindex = 0; txindex < tal_count(block->tx); txindex++) {
+		const struct bitcoin_tx *tx = block->tx[txindex];
+		struct bitcoin_txid txid;
+
+		bitcoin_txid(tx, &txid);
+		for (size_t i = 0; i < tx->wtx->num_outputs; i++) {
+			struct scriptpubkey key = {
+				.script = tx->wtx->outputs[i].script,
+				.len = tx->wtx->outputs[i].script_len,
+			};
+			struct watch *w = scriptpubkey_watches_get(
+				rescan->watch_set->scriptpubkey_watches, &key);
+			struct bitcoin_outpoint outpoint;
+
+			if (!w)
+				continue;
+			for (size_t owner = 0; owner < tal_count(w->owners); owner++)
+				collect_wallet_match(rescan, WATCH_SCRIPTPUBKEY,
+						     w->owners[owner], tx,
+						     blockheight, timestamp, i);
+			outpoint.txid = txid;
+			outpoint.n = i;
+			follow_wallet_outpoint(rescan, &outpoint, w, blockheight);
+		}
+
+		for (size_t i = 0; i < tx->wtx->num_inputs; i++) {
+			struct bitcoin_outpoint outpoint;
+			struct watch *w;
+
+			bitcoin_tx_input_get_txid(tx, i, &outpoint.txid);
+			outpoint.n = tx->wtx->inputs[i].index;
+			w = outpoint_watches_get(
+				rescan->watch_set->outpoint_watches, &outpoint);
+			if (!w)
+				continue;
+			for (size_t owner = 0; owner < tal_count(w->owners); owner++)
+				collect_wallet_match(rescan, WATCH_OUTPOINT,
+						     w->owners[owner], tx,
+						     blockheight, timestamp, i);
+		}
+	}
 }
 
 /* Fire depth notifications for every active blockdepth watch.

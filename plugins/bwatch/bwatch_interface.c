@@ -450,6 +450,74 @@ struct command_result *json_bwatch_add_scriptpubkeys(struct command *cmd,
 	return command_success(cmd, json_out_obj(cmd, NULL, NULL));
 }
 
+/* Scan an explicit transient script set without installing it.  Matching
+ * outputs are followed as transient outpoints during the same forward block
+ * pass, and ordered matches are returned to the caller. */
+struct command_result *json_bwatch_scan_watch_set(struct command *cmd,
+						  const char *buffer,
+						  const jsmntok_t *params)
+{
+	struct bwatch *bwatch = bwatch_of(cmd->plugin);
+	const jsmntok_t *watches, *entry;
+	struct rescan_script *scripts;
+	u32 *start_block;
+	size_t i;
+
+	if (!param(cmd, buffer, params,
+		   p_req("watches", param_array, &watches),
+		   p_req("start_block", param_u32, &start_block),
+		   NULL))
+		return command_param_failed();
+	if (watches->size == 0)
+		return command_fail_badparam(cmd, "watches", buffer, watches,
+					     "must contain at least one watch");
+
+	scripts = tal_arr(cmd, struct rescan_script, watches->size);
+	json_for_each_arr(i, entry, watches) {
+		const jsmntok_t *owner, *scriptpubkey;
+
+		if (entry->type != JSMN_OBJECT)
+			return command_fail_badparam(cmd, "watches", buffer, entry,
+						     "entries must be objects");
+		owner = json_get_member(buffer, entry, "owner");
+		scriptpubkey = json_get_member(buffer, entry, "scriptpubkey");
+		if (!owner || owner->type != JSMN_STRING)
+			return command_fail_badparam(cmd, "watches", buffer, entry,
+						     "entry requires string owner");
+		if (!scriptpubkey || scriptpubkey->type != JSMN_STRING)
+			return command_fail_badparam(
+				cmd, "watches", buffer, entry,
+				"entry requires hexadecimal scriptpubkey");
+		scripts[i].owner = json_strdup(scripts, buffer, owner);
+		scripts[i].scriptpubkey = json_tok_bin_from_hex(
+			scripts, buffer, scriptpubkey);
+		if (!scripts[i].scriptpubkey)
+			return command_fail_badparam(
+				cmd, "watches", buffer, scriptpubkey,
+				"scriptpubkey must be valid hexadecimal");
+	}
+
+	if (bwatch->current_height == 0)
+		return command_fail(cmd, LIGHTNINGD,
+				    "bwatch has not processed a chain tip yet");
+	if (*start_block > bwatch->current_height) {
+		struct json_out *response = json_out_new(cmd);
+		json_out_start(response, NULL, '{');
+		json_out_add(response, "start_block", false, "%u", *start_block);
+		json_out_add(response, "target_block", false, "%u",
+			     bwatch->current_height);
+		json_out_add(response, "blocks_processed", false, "0");
+		json_out_start(response, "matches", '[');
+		json_out_end(response, ']');
+		json_out_end(response, '}');
+		return command_success(cmd, response);
+	}
+
+	bwatch_start_wallet_scan(cmd, scripts, *start_block,
+				 bwatch->current_height);
+	return command_still_pending(cmd);
+}
+
 /* Replay an explicit logical wallet set.  A prefix is convenient for CLN's
  * wallet/ namespace; an exact owner array lets descriptor plugins rescan only
  * newly registered branches without replaying older owners. */
@@ -545,12 +613,14 @@ struct command_result *json_bwatch_add_outpoint(struct command *cmd,
 	const char *owner;
 	struct bitcoin_outpoint *outpoint;
 	u32 *start_block;
+	bool *rescan;
 	struct watch *w;
 
 	if (!param(cmd, buffer, params,
 		   p_req("owner", param_string, &owner),
 		   p_req("outpoint", param_outpoint, &outpoint),
 		   p_req("start_block", param_u32, &start_block),
+		   p_opt_def("rescan", param_bool, &rescan, true),
 		   NULL))
 		return command_param_failed();
 
@@ -559,6 +629,8 @@ struct command_result *json_bwatch_add_outpoint(struct command *cmd,
 	w = bwatch_add_watch(cmd, bwatch, WATCH_OUTPOINT,
 			     outpoint, NULL, NULL, NULL,
 			     *start_block, owner);
+	if (!*rescan)
+		return command_success(cmd, json_out_obj(cmd, NULL, NULL));
 	return add_watch_and_maybe_rescan(cmd, bwatch, w, *start_block);
 }
 
@@ -886,6 +958,12 @@ struct command_result *json_bwatch_status(struct command *cmd,
 			     owners_total > owners_limit ? "true" : "false");
 		json_out_add(jout, "watch_count", false, "%zu",
 			     rescan->watch_count);
+		json_out_add(jout, "script_matches_found", false, "%"PRIu64,
+			     rescan->script_matches_found);
+		json_out_add(jout, "outpoint_matches_found", false, "%"PRIu64,
+			     rescan->outpoint_matches_found);
+		json_out_add(jout, "outpoints_followed", false, "%"PRIu64,
+			     rescan->outpoints_followed);
 		json_out_add(jout, "start_height", false, "%u",
 			     rescan->start_block);
 		json_out_add(jout, "current_height", false, "%u",

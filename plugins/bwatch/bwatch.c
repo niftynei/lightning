@@ -1,5 +1,6 @@
 #include "config.h"
 #include <ccan/array_size/array_size.h>
+#include <ccan/json_out/json_out.h>
 #include <ccan/ptrint/ptrint.h>
 #include <ccan/tal/str/str.h>
 #include <common/json_param.h>
@@ -11,6 +12,7 @@
 #include <plugins/bwatch/bwatch_scanner.h>
 #include <plugins/bwatch/bwatch_store.h>
 #include <plugins/bwatch/bwatch_wiregen.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdlib.h>
 
@@ -402,7 +404,8 @@ static struct command_result *fetch_block_rescan(struct command *cmd,
 
 /* Finish a rescan chain: RPC commands get a JSON result; aux/timer
  * commands just terminate. */
-static struct command_result *rescan_complete(struct command *cmd)
+static struct command_result *rescan_complete(struct command *cmd,
+					      const struct rescan_state *rescan)
 {
 	struct bwatch *bwatch = bwatch_of(cmd->plugin);
 
@@ -410,6 +413,37 @@ static struct command_result *rescan_complete(struct command *cmd)
 	switch (cmd->type) {
 	case COMMAND_TYPE_NORMAL:
 	case COMMAND_TYPE_HOOK:
+		if (rescan->collect_matches) {
+			struct json_out *response = json_out_new(cmd);
+			json_out_start(response, NULL, '{');
+			json_out_add(response, "start_block", false, "%u",
+				     rescan->start_block);
+			json_out_add(response, "target_block", false, "%u",
+				     rescan->target_block);
+			json_out_add(response, "blocks_processed", false, "%"PRIu64,
+				     (u64)rescan->target_block - rescan->start_block + 1);
+			json_out_start(response, "matches", '[');
+			for (size_t i = 0; i < tal_count(rescan->matches); i++) {
+				const struct rescan_match *match = &rescan->matches[i];
+				json_out_start(response, NULL, '{');
+				json_out_addstr(response, "owner", match->owner);
+				json_out_addstr(response, "watch_type",
+						bwatch_get_watch_type_name(match->type));
+				json_out_add(response, "blockheight", false, "%u",
+					     match->blockheight);
+				json_out_add(response, "timestamp", false, "%u",
+					     match->timestamp);
+				json_out_add(response, "index", false, "%u",
+					     match->index);
+				json_out_addstr(response, "tx",
+						tal_hexstr(tmpctx, match->tx,
+							   tal_bytelen(match->tx)));
+				json_out_end(response, '}');
+			}
+			json_out_end(response, ']');
+			json_out_end(response, '}');
+			return command_success(cmd, response);
+		}
 		return command_success(cmd, json_out_obj(cmd, NULL, NULL));
 	case COMMAND_TYPE_AUX:
 		return aux_command_done(cmd);
@@ -454,7 +488,10 @@ static struct command_result *rescan_block_done(struct command *cmd,
 
 	/* rescan->watch is forwarded so the scanner only checks that one
 	 * watch (or all watches when watch == NULL). */
-	if (rescan->watch_set) {
+	if (rescan->collect_matches) {
+		bwatch_process_block_wallet_scan(cmd, rescan, block,
+						 rescan->current_block, &blockhash);
+	} else if (rescan->watch_set) {
 		bwatch_process_block_txs(cmd, rescan->watch_set, block,
 					 rescan->current_block, &blockhash, NULL);
 		bwatch_check_blockdepth_watches(cmd, rescan->watch_set,
@@ -478,7 +515,7 @@ static struct command_result *rescan_block_done(struct command *cmd,
 	rescan->bwatch->rescan_blocks_processed_total
 		+= (u64)rescan->target_block - rescan->start_block + 1;
 	plugin_log(cmd->plugin, LOG_INFORM, "Rescan complete");
-	return rescan_complete(cmd);
+	return rescan_complete(cmd, rescan);
 }
 
 static void destroy_rescan(struct rescan_state *rescan)
@@ -497,6 +534,11 @@ static struct rescan_state *new_rescan(struct command *cmd,
 	rescan->watch_set = NULL;
 	rescan->selector = NULL;
 	rescan->scriptpubkey_watches = NULL;
+	rescan->collect_matches = false;
+	rescan->matches = tal_arr(rescan, struct rescan_match, 0);
+	rescan->script_matches_found = 0;
+	rescan->outpoint_matches_found = 0;
+	rescan->outpoints_followed = 0;
 	rescan->watch_count = 0;
 	rescan->start_block = start_block;
 	rescan->current_block = start_block;
@@ -593,6 +635,65 @@ void bwatch_start_scriptpubkey_rescan(struct command *cmd,
 		rescan->watch_count++;
 	}
 
+	start_rescan_fetch(cmd, rescan);
+}
+
+void bwatch_start_wallet_scan(struct command *cmd,
+			       const struct rescan_script *scripts,
+			       u32 start_block,
+			       u32 target_block)
+{
+	struct rescan_state *rescan = new_rescan(cmd, start_block, target_block);
+
+	rescan->collect_matches = true;
+	rescan->watch_set = talz(rescan, struct bwatch);
+	rescan->watch_set->scriptpubkey_watches
+		= new_htable(rescan->watch_set, scriptpubkey_watches);
+	rescan->watch_set->outpoint_watches
+		= new_htable(rescan->watch_set, outpoint_watches);
+	rescan->watch_set->scid_watches
+		= new_htable(rescan->watch_set, scid_watches);
+	rescan->watch_set->blockdepth_watches
+		= new_htable(rescan->watch_set, blockdepth_watches);
+
+	for (size_t i = 0; i < tal_count(scripts); i++) {
+		struct scriptpubkey key = {
+			.script = scripts[i].scriptpubkey,
+			.len = tal_bytelen(scripts[i].scriptpubkey),
+		};
+		struct watch *w = scriptpubkey_watches_get(
+			rescan->watch_set->scriptpubkey_watches, &key);
+
+		if (w) {
+			bool found = false;
+			for (size_t j = 0; j < tal_count(w->owners); j++) {
+				if (streq(w->owners[j], scripts[i].owner)) {
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+				tal_arr_expand(&w->owners,
+					       tal_strdup(w->owners, scripts[i].owner));
+			continue;
+		}
+
+		w = tal(rescan->watch_set, struct watch);
+		w->type = WATCH_SCRIPTPUBKEY;
+		w->start_block = start_block;
+		w->key.scriptpubkey.len = key.len;
+		w->key.scriptpubkey.script = tal_dup_arr(
+			w, u8, key.script, key.len, 0);
+		w->owners = tal_arr(w, wirestring *, 1);
+		w->owners[0] = tal_strdup(w->owners, scripts[i].owner);
+		bwatch_add_watch_to_hash(rescan->watch_set, w);
+		rescan->watch_count++;
+	}
+
+	rescan->selector = tal_fmt(rescan, "transient:%zu", rescan->watch_count);
+	plugin_log(cmd->plugin, LOG_INFORM,
+		   "Starting transient wallet scan for %zu scripts: blocks %u-%u",
+		   rescan->watch_count, start_block, target_block);
 	start_rescan_fetch(cmd, rescan);
 }
 
@@ -793,6 +894,7 @@ static const char *init(struct command *cmd,
 static const struct plugin_command commands[] = {
 	{ "addscriptpubkeywatch", json_bwatch_add_scriptpubkey },
 	{ "addscriptpubkeywatches", json_bwatch_add_scriptpubkeys },
+	{ "scanwatchset",         json_bwatch_scan_watch_set    },
 	{ "rescanwatchset",       json_bwatch_rescan_watch_set },
 	{ "addoutpointwatch",     json_bwatch_add_outpoint     },
 	{ "addscidwatch",         json_bwatch_add_scid         },

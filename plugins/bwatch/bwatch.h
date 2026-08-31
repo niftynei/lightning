@@ -44,6 +44,19 @@ enum watch_type {
 	WATCH_BLOCKDEPTH,
 };
 
+/* One ordered match collected by the transient wallet scanner.  Unlike the
+ * normal watch_found path this is returned to the RPC caller, allowing it to
+ * commit a historical wallet import synchronously and without racing plugin
+ * notifications. */
+struct rescan_match {
+	enum watch_type type;
+	const char *owner;
+	u32 blockheight;
+	u32 timestamp;
+	u32 index;
+	u8 *tx;
+};
+
 /* Scriptpubkey wrapper: tal-allocated bytes don't carry a length, so we
  * keep them in a struct with an explicit length for hashing/equality. */
 struct scriptpubkey {
@@ -135,6 +148,13 @@ struct rescan_state {
 	/* Non-NULL for a batched script-only rescan.  Entries are snapshots
 	 * containing only the owners named by the batch request. */
 	struct scriptpubkey_watches *scriptpubkey_watches;
+	/* scanwatchset uses a transient script table and grows its transient
+	 * outpoint table as matching outputs are found. */
+	bool collect_matches;
+	struct rescan_match *matches;
+	u64 script_matches_found;
+	u64 outpoint_matches_found;
+	u64 outpoints_followed;
 	size_t watch_count;
 	u32 start_block;		/* First block in the inclusive range */
 	u32 current_block;		/* Next block to fetch */
@@ -154,6 +174,14 @@ void bwatch_start_scriptpubkey_rescan(struct command *cmd,
 				      const struct rescan_script *scripts,
 				      u32 start_block,
 				      u32 target_block);
+
+/* Scan transient scripts once, following every matching output forward as an
+ * outpoint in the same pass.  Results are returned in block/transaction order
+ * instead of being broadcast as notifications. */
+void bwatch_start_wallet_scan(struct command *cmd,
+			       const struct rescan_script *scripts,
+			       u32 start_block,
+			       u32 target_block);
 
 /* Replay one historical range against only the owners selected here.  Returns
  * false without starting when the selector currently matches no watches. */

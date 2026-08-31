@@ -25,6 +25,15 @@ void bwatch_process_block_scriptpubkeys(
 	const struct bitcoin_blkid *blockhash,
 	struct scriptpubkey_watches *watches);
 
+/* Single-pass historical wallet scan.  Script matches are collected and their
+ * outpoints are inserted into the in-flight table before the next transaction
+ * is examined, so later spends require no second block fetch. */
+void bwatch_process_block_wallet_scan(struct command *cmd,
+				      struct rescan_state *rescan,
+				      const struct bitcoin_block *block,
+				      u32 blockheight,
+				      const struct bitcoin_blkid *blockhash);
+
 /* Fire watch_found for scid watches anchored to this block.
  * w==NULL walks every scid watch (normal polling); w non-NULL
  * fires only that watch (single-watch rescan). */

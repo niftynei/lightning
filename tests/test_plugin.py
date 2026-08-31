@@ -5467,6 +5467,36 @@ def test_bwatch_no_rescan_for_future_start_block(node_factory, bitcoind):
     assert not l1.daemon.is_in_log(rf'Starting rescan.*blocks.*{future_block}')
 
 
+def test_bwatch_outpoint_watch_can_skip_historical_rescan(node_factory):
+    """A caller that already scanned history can persist an outpoint directly."""
+    l1 = node_factory.get_node(options=BWATCH_OPTS)
+    wait_bwatch_caught_up(l1)
+    current_height = l1.rpc.getinfo()['blockheight']
+    fetched = []
+
+    def count_historical_fetch(req):
+        fetched.append(int(req['params'][0]))
+        return None
+
+    l1.daemon.rpcproxy.mock_rpc('getblockhash', count_historical_fetch)
+    try:
+        l1.rpc.addoutpointwatch(
+            owner='plugin/test/no-outpoint-rescan',
+            outpoint=f'{"9" * 64}:0',
+            start_block=current_height - 5,
+            rescan=False,
+        )
+    finally:
+        l1.daemon.rpcproxy.mock_rpc('getblockhash', None)
+
+    assert fetched == []
+    assert any(
+        'plugin/test/no-outpoint-rescan' in watch['owners']
+        for watch in l1.rpc.listwatch()['watches']
+        if watch['type'] == 'outpoint'
+    )
+
+
 def test_bwatch_rescan_scriptpubkey(node_factory, bitcoind):
     """Test that scriptpubkey watches also trigger rescan"""
     l1 = node_factory.get_node(options=BWATCH_OPTS)
@@ -5633,6 +5663,104 @@ def test_bwatch_batch_rejects_malformed_entry_atomically(node_factory):
         watched_owner.startswith(owner)
         for watch in l1.rpc.listwatch()['watches']
         for watched_owner in watch['owners']
+    )
+
+
+def test_bwatch_wallet_scan_follows_spends_in_one_block_pass(
+        node_factory, executor, bitcoind):
+    """Transient scripts discover deposits and later spends without refetching."""
+    from collections import Counter
+
+    l1 = node_factory.get_node(options=BWATCH_OPTS)
+    wait_bwatch_caught_up(l1)
+
+    watched_address = bitcoind.rpc.getnewaddress()
+    watched_spk = bitcoind.rpc.getaddressinfo(watched_address)['scriptPubKey']
+    receive_txid = bitcoind.rpc.sendtoaddress(watched_address, 0.01)
+    receive_hash = bitcoind.generate_block(1)[0]
+    receive_height = bitcoind.rpc.getblockheader(receive_hash)['height']
+
+    receive_tx = bitcoind.rpc.getrawtransaction(receive_txid, True)
+    receive_vout = next(
+        output['n'] for output in receive_tx['vout']
+        if output['scriptPubKey']['hex'] == watched_spk
+    )
+    destination = bitcoind.rpc.getnewaddress()
+    spend_raw = bitcoind.rpc.createrawtransaction(
+        [{'txid': receive_txid, 'vout': receive_vout}],
+        {destination: 0.009},
+    )
+    spend_hex = bitcoind.rpc.signrawtransactionwithwallet(spend_raw)['hex']
+    spend_txid = bitcoind.rpc.sendrawtransaction(spend_hex)
+    bitcoind.generate_block(1)
+    bitcoind.generate_block(20)
+    wait_bwatch_caught_up(l1)
+
+    current_height = l1.rpc.getinfo()['blockheight']
+    fetched = []
+
+    def count_historical_fetch(req):
+        height = int(req['params'][0])
+        if receive_height <= height <= current_height:
+            fetched.append(height)
+            time.sleep(0.05)
+        return None
+
+    l1.daemon.rpcproxy.mock_rpc('getblockhash', count_historical_fetch)
+    try:
+        scan = executor.submit(
+            l1.rpc.call,
+            'scanwatchset',
+            {
+                'watches': [{
+                    'owner': 'plugin/test/wallet-scan/spk/0/51',
+                    'scriptpubkey': watched_spk,
+                }],
+                'start_block': receive_height,
+            },
+        )
+
+        def matches_are_visible():
+            active = l1.rpc.call('bwatch-status')['active_rescans']
+            if not active:
+                return False
+            status = only_one(active)
+            return (
+                status['script_matches_found'] == 1
+                and status['outpoint_matches_found'] == 1
+                and status['outpoints_followed'] == 1
+            )
+
+        wait_for(matches_are_visible)
+        live = only_one(l1.rpc.call('bwatch-status')['active_rescans'])
+        assert live['watch_count'] == 2
+        assert live['script_matches_found'] == 1
+        assert live['outpoint_matches_found'] == 1
+        assert live['outpoints_followed'] == 1
+        result = scan.result(timeout=TIMEOUT)
+    finally:
+        l1.daemon.rpcproxy.mock_rpc('getblockhash', None)
+
+    matches = result['matches']
+    assert [match['watch_type'] for match in matches] == [
+        'scriptpubkey', 'outpoint'
+    ]
+    assert matches[0]['blockheight'] == receive_height
+    assert matches[0]['index'] == receive_vout
+    decoded_spend = bitcoind.rpc.decoderawtransaction(matches[1]['tx'])
+    assert decoded_spend['txid'] == spend_txid
+    assert result['blocks_processed'] == current_height - receive_height + 1
+
+    counts = Counter(fetched)
+    assert set(counts) == set(range(receive_height, current_height + 1))
+    assert all(count == 1 for count in counts.values())
+
+    # The scan set is transient: its script and dynamically followed outpoint
+    # are not leaked into bwatch's durable watch registry.
+    assert not any(
+        owner.startswith('plugin/test/wallet-scan/')
+        for watch in l1.rpc.listwatch()['watches']
+        for owner in watch['owners']
     )
 
 
