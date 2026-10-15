@@ -142,6 +142,9 @@ Core Lightning Documentation
    newaddr <newaddr.7.md>
    notification-balance_snapshot <notification-balance_snapshot.7.md>
    notification-block_added <notification-block_added.7.md>
+   notification-bwatch_block_processed <notification-bwatch_block_processed.7.md>
+   notification-bwatch_block_reverted <notification-bwatch_block_reverted.7.md>
+   notification-bwatch_match <notification-bwatch_match.7.md>
    notification-channel_open_failed <notification-channel_open_failed.7.md>
    notification-channel_opened <notification-channel_opened.7.md>
    notification-channel_state_changed <notification-channel_state_changed.7.md>
