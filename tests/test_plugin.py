@@ -5470,6 +5470,8 @@ def test_bwatch_wallet_scan_follows_spends_in_one_block_pass(
     bitcoind.generate_block(20)
     wait_bwatch_caught_up(l1)
 
+    # bwatch can reach the tip before lightningd updates getinfo.
+    sync_blockheight(bitcoind, [l1])
     current_height = l1.rpc.getinfo()['blockheight']
     fetched = []
 
