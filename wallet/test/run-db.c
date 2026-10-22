@@ -456,6 +456,75 @@ static bool test_empty_db_migrate(struct lightningd *ld)
 	return true;
 }
 
+/* The deployed bwatch branch ended at migration 285.  Its tables already
+ * contain wallet data: backported migrations must not shift their indices. */
+static bool test_deployed_bwatch_upgrade(struct lightningd *ld)
+{
+	const char *setup[] = {
+		SQL("CREATE TABLE version (version INTEGER)"),
+		SQL("INSERT INTO version VALUES (285)"),
+		SQL("CREATE TABLE vars (name TEXT PRIMARY KEY, val TEXT, intval INTEGER, blobval BLOB)"),
+		SQL("INSERT INTO vars (name, intval) VALUES ('data_version', 0)"),
+		SQL("CREATE TABLE db_upgrades (upgrade_from INTEGER, lightning_version TEXT)"),
+		/* Only the feerate column is relevant to the new migrations. */
+		SQL("CREATE TABLE channel_funding_inflights (id INTEGER PRIMARY KEY, funding_feerate INTEGER)"),
+		SQL("INSERT INTO channel_funding_inflights VALUES (1, -1), (2, 1000001), (3, 0), (4, NULL), (5, 500), (6, 1000000), (7, 253)"),
+		SQL("CREATE TABLE our_txs (txid BLOB PRIMARY KEY, blockheight INTEGER NOT NULL, txindex INTEGER NOT NULL DEFAULT 0, rawtx BLOB)"),
+		SQL("INSERT INTO our_txs VALUES (X'0123', 100, 2, X'4567')"),
+		/* Sentinel data also detects accidentally rerunning the backfill. */
+		SQL("CREATE TABLE our_outputs (txid BLOB, outnum INTEGER, satoshis BIGINT, PRIMARY KEY (txid, outnum))"),
+		SQL("INSERT INTO our_outputs VALUES (X'0123', 0, 123456)")
+	};
+	const int expected[] = {1000000, 1000000, 253, 253, 500, 1000000, 253};
+	struct db *db = create_test_db();
+	struct db_stmt *stmt;
+	bool upgrade_ok = true;
+	bool *saved_upgrade_ok = ld->db_upgrade_ok;
+
+	CHECK(db);
+	/* Pin the historical migration boundary, not an offset from array end. */
+	CHECK(dbmigrations[285].func == migrate_backfill_bwatch_tables);
+	ld->db_upgrade_ok = &upgrade_ok;
+	db_begin_transaction(db);
+	for (size_t i = 0; i < ARRAY_SIZE(setup); i++) {
+		stmt = db_prepare_v2(db, setup[i]);
+		db_exec_prepared_v2(stmt);
+		tal_free(stmt);
+	}
+	db_commit_transaction(db);
+
+	db_begin_transaction(db);
+	CHECK(db_migrate(ld, db, NULL));
+	CHECK(db_get_version(db) == ARRAY_SIZE(dbmigrations) - 1);
+	stmt = db_prepare_v2(db, SQL("SELECT funding_feerate FROM channel_funding_inflights ORDER BY id"));
+	db_query_prepared(stmt);
+	for (size_t i = 0; i < ARRAY_SIZE(expected); i++) {
+		CHECK(db_step(stmt));
+		CHECK(db_col_int(stmt, "funding_feerate") == expected[i]);
+	}
+	CHECK(!db_step(stmt));
+	tal_free(stmt);
+	stmt = db_prepare_v2(db, SQL("SELECT COUNT(*) AS n FROM our_txs WHERE txid = X'0123' AND blockheight = 100 AND txindex = 2 AND rawtx = X'4567'"));
+	db_query_prepared(stmt);
+	CHECK(db_step(stmt));
+	CHECK(db_col_int(stmt, "n") == 1);
+	tal_free(stmt);
+	stmt = db_prepare_v2(db, SQL("SELECT COUNT(*) AS n FROM our_outputs WHERE txid = X'0123' AND outnum = 0 AND satoshis = 123456"));
+	db_query_prepared(stmt);
+	CHECK(db_step(stmt));
+	CHECK(db_col_int(stmt, "n") == 1);
+	tal_free(stmt);
+	db_commit_transaction(db);
+
+	/* A second startup must not rerun any migration. */
+	db_begin_transaction(db);
+	CHECK(!db_migrate(ld, db, NULL));
+	db_commit_transaction(db);
+	ld->db_upgrade_ok = saved_upgrade_ok;
+	tal_free(db);
+	return true;
+}
+
 static bool test_primitives(void)
 {
 	struct db_stmt *stmt;
@@ -594,7 +663,7 @@ int main(int argc, char *argv[])
 {
 	bool ok = true;
 	/* Dummy for migration hooks */
-	struct lightningd *ld = tal(NULL, struct lightningd);
+	struct lightningd *ld = talz(NULL, struct lightningd);
 
 	common_setup(argv[0]);
 	ld->config = test_config;
@@ -602,6 +671,7 @@ int main(int argc, char *argv[])
 	/* We do a runtime test here, so we still check compile! */
 	if (HAVE_SQLITE3) {
 		ok &= test_empty_db_migrate(ld);
+		ok &= test_deployed_bwatch_upgrade(ld);
 		ok &= test_vars(ld);
 		ok &= test_primitives();
 		ok &= test_manip_columns();
